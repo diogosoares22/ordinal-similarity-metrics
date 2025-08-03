@@ -7,22 +7,36 @@ The TSI measures the similarity between two representations
 """
 
 import numpy as np
-from scipy.stats._stats_py import _kendall_dis
+from typing import Callable
+from dataclasses import dataclass
+from sklearn.metrics import pairwise_distances
+from sklearn.metrics.pairwise import paired_distances
+import pymp
 
+from scipy.stats._stats import _kendall_dis
+
+
+@dataclass
+class RepresentationPair:
+    X: np.ndarray
+    Y: np.ndarray
+    d_x: Callable
+    d_y: Callable
 
 class TSI:
     """
     The TSI class is used to compute the TSI between two representations.
     """
-    def __init__(self, n=None):
+    def __init__(self):
         pass
 
-    def __call__(self, X, Y, d_x, d_y):
+    def __call__(self, representations: RepresentationPair):
         """
         Compute the TSI between two representations. Let X and Y be two sets of points in a metric space.
         Let d_X and d_Y be two distance functions on X and Y respectively.
         Let T be a set of triplets of indices (i, j, k) where i, j, k are in {1, ..., N} and i != j != k.
         """
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
         n = len(X)
         aligned_triplets = 0
         for i in range(n):
@@ -43,10 +57,11 @@ class ApproxTSI:
     def __init__(self, k=None):
         self.k = k
 
-    def __call__(self, X, Y, d_x, d_y):
+    def __call__(self, representations: RepresentationPair):
         """
         Compute the approximate TSI between two representations.
         """
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
         n = len(X)
         samples = [np.random.choice(n, size=3, replace=False) for _ in range(self.k)]
         aligned_triplets = 0
@@ -55,32 +70,13 @@ class ApproxTSI:
         return aligned_triplets / self.k
     
 
-class _FenwickTree:
-    """A Fenwick Tree for suffix updates and point queries."""
-    def __init__(self, size):
-        self.tree = [0] * (size + 1)
-
-    def update(self, i, delta):
-        i += 1
-        while i < len(self.tree):
-            self.tree[i] += delta
-            i += i & (-i)
-
-    def query(self, i):
-        i += 1
-        s = 0
-        while i > 0:
-            s += self.tree[i]
-            i -= i & (-i)
-        return s
-    
-
 class EfficientTSI:
     """
     The EfficientTSI class is used to efficiently compute the TSI between two representations.
     """
-    def __init__(self):
-        pass
+    def __init__(self, euclidean: bool = False, memory_efficient: bool = False):
+        self.euclidean = euclidean
+        self.memory_efficient = memory_efficient
 
     def _compute_inversions_and_ties(self, distances_x, distances_y):
         """
@@ -105,7 +101,7 @@ class EfficientTSI:
         x, y = x[perm], y[perm]
         x = np.r_[True, x[1:] != x[:-1]].cumsum(dtype=np.intp)
 
-        dis = _kendall_dis(x, y)  # discordant pairs
+        dis = _kendall_dis(x, y) # discordant pairs
 
         obs = np.r_[True, (x[1:] != x[:-1]) | (y[1:] != y[:-1]), True]
         cnt = np.diff(np.nonzero(obs)[0]).astype('int64', copy=False)
@@ -124,16 +120,39 @@ class EfficientTSI:
 
         return pos, neg
 
-    def __call__(self, X, Y, d_x, d_y):
+    def __call__(self, representations: RepresentationPair):
         """
         Compute the efficient TSI between two representations.
         """
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
         n = len(X)
         aligned_triplets = 0
-        for i in range(n):
-            anchor_point = i
-            distances_x = np.array([d_x(X[anchor_point], X[j]) for j in list(range(0, anchor_point)) + list(range(anchor_point + 1, n))])
-            distances_y = np.array([d_y(Y[anchor_point], Y[j]) for j in list(range(0, anchor_point)) + list(range(anchor_point + 1, n))])
-            pos, _ = self._compute_inversions_and_ties(distances_x, distances_y)
-            aligned_triplets += 2 * pos
+
+        metric_x = 'euclidean' if self.euclidean else d_x
+        metric_y = 'euclidean' if self.euclidean else d_y
+
+        if not self.memory_efficient:
+            k_x = pairwise_distances(X, metric=metric_x, n_jobs=-1)
+            k_y = pairwise_distances(Y, metric=metric_y, n_jobs=-1)
+            
+            full_mask = (np.ones((n, n), dtype=bool) - np.eye(n)).astype(bool)
+
+            full_distances_x = np.array([k_x[i, full_mask[i, :]] for i in range(n)])
+            full_distances_y = np.array([k_y[i, full_mask[i, :]] for i in range(n)])
+
+        results = pymp.shared.array((n))
+        with pymp.Parallel(8) as p:
+            for i in p.range(n):
+                if not self.memory_efficient:
+                    distances_x = full_distances_x[i, :]
+                    distances_y = full_distances_y[i, :]
+                else:
+                    mask = np.ones(n, dtype=bool)
+                    mask[i] = False
+                    distances_x = pairwise_distances(X[[i]], X[mask], metric=metric_x)[0]
+                    distances_y = pairwise_distances(Y[[i]], Y[mask], metric=metric_y)[0]
+                pos, _ = self._compute_inversions_and_ties(distances_x, distances_y)
+                results[i] = 2 * pos
+        
+        aligned_triplets = results.sum()
         return aligned_triplets / (n * (n - 1) * (n - 2))
