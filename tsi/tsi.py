@@ -10,11 +10,9 @@ import numpy as np
 from typing import Callable
 from dataclasses import dataclass
 from sklearn.metrics import pairwise_distances
-from sklearn.metrics.pairwise import paired_distances
+from sklearn.neighbors import NearestNeighbors
 import pymp
-
 from scipy.stats._stats import _kendall_dis
-
 
 @dataclass
 class RepresentationPair:
@@ -22,6 +20,15 @@ class RepresentationPair:
     Y: np.ndarray
     d_x: Callable
     d_y: Callable
+
+@dataclass
+class PartialIndices:
+    indices: list[tuple[int, int, int]]
+    
+@dataclass
+class CompleteIndices:
+    indices: dict[int, list[int]]
+
 
 class TSI:
     """
@@ -49,36 +56,7 @@ class TSI:
                     aligned_triplets += np.sign(d_y(Y[i], Y[j]) - d_y(Y[i], Y[k])) == np.sign(d_x(X[i], X[j]) - d_x(X[i], X[k]))
         return aligned_triplets / (n * (n - 1) * (n - 2))
     
-
-class ApproxTSI:
-    """
-    The ApproxTSI class is used to compute the approximate TSI between two representations.
-    """
-    def __init__(self, k=None):
-        self.k = k
-
-    def __call__(self, representations: RepresentationPair):
-        """
-        Compute the approximate TSI between two representations.
-        """
-        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
-        n = len(X)
-        samples = [np.random.choice(n, size=3, replace=False) for _ in range(self.k)]
-        aligned_triplets = 0
-        for sample in samples:
-            aligned_triplets += np.sign(d_y(Y[sample[0]], Y[sample[1]]) - d_y(Y[sample[0]], Y[sample[2]])) == np.sign(d_x(X[sample[0]], X[sample[1]]) - d_x(X[sample[0]], X[sample[2]]))
-        return aligned_triplets / self.k
-    
-
-class EfficientTSI:
-    """
-    The EfficientTSI class is used to efficiently compute the TSI between two representations.
-    """
-    def __init__(self, euclidean: bool = False, memory_efficient: bool = False):
-        self.euclidean = euclidean
-        self.memory_efficient = memory_efficient
-
-    def _compute_inversions_and_ties(self, distances_x, distances_y):
+def _compute_inversions_and_ties(distances_x, distances_y):
         """
         Compute the inversions and ties in the distances. Code inspired by scipy.stats.kendalltau.
         """
@@ -118,7 +96,16 @@ class EfficientTSI:
 
         neg = dis + (xtie - ntie) + (ytie - ntie)
 
-        return pos, neg
+        return pos, neg    
+    
+
+class EfficientTSI:
+    """
+    The EfficientTSI class is used to efficiently compute the TSI between two representations.
+    """
+    def __init__(self, euclidean: bool = False, memory_efficient: bool = True):
+        self.euclidean = euclidean
+        self.memory_efficient = memory_efficient
 
     def __call__(self, representations: RepresentationPair):
         """
@@ -151,8 +138,95 @@ class EfficientTSI:
                     mask[i] = False
                     distances_x = pairwise_distances(X[[i]], X[mask], metric=metric_x)[0]
                     distances_y = pairwise_distances(Y[[i]], Y[mask], metric=metric_y)[0]
-                pos, _ = self._compute_inversions_and_ties(distances_x, distances_y)
+                pos, _ = _compute_inversions_and_ties(distances_x, distances_y)
                 results[i] = 2 * pos
         
         aligned_triplets = results.sum()
+        return aligned_triplets / (n * (n - 1) * (n - 2))
+    
+class ApproxTSI:
+    """
+    The ApproxTSI class is used to compute the approximate TSI between two representations.
+    """
+    def __init__(self, euclidean: bool = False):
+        self.euclidean = euclidean
+
+    def __call__(self, representations: RepresentationPair, indices: PartialIndices|CompleteIndices):
+        """
+        Compute the approximate TSI between two representations.
+        """
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
+        n = len(X)
+        if isinstance(indices, PartialIndices):
+            aligned_triplets = 0
+            for triplet in indices.indices:
+                aligned_triplets += np.sign(d_y(Y[triplet[0]], Y[triplet[1]]) - d_y(Y[triplet[0]], Y[triplet[2]])) == np.sign(d_x(X[triplet[0]], X[triplet[1]]) - d_x(X[triplet[0]], X[triplet[2]]))
+            return aligned_triplets / len(indices.indices)
+        elif isinstance(indices, CompleteIndices):
+            results = pymp.shared.array((n))
+            total_triplets = pymp.shared.array((n))
+            metric_x = 'euclidean' if self.euclidean else d_x
+            metric_y = 'euclidean' if self.euclidean else d_y
+            with pymp.Parallel(8) as p:
+                for anchor in p.iterate(indices.indices):
+                    complete_indices = indices.indices[anchor]
+                    mask = np.zeros(n, dtype=bool)
+                    mask[complete_indices] = True
+                    distances_x = pairwise_distances(X[[anchor]], X[mask], metric=metric_x)[0]
+                    distances_y = pairwise_distances(Y[[anchor]], Y[mask], metric=metric_y)[0]
+                    pos, _ = _compute_inversions_and_ties(distances_x, distances_y)
+                    results[anchor] = 2 * pos
+                    total_triplets[anchor] = len(complete_indices) * (len(complete_indices) - 1)
+            return results.sum() / total_triplets.sum()
+        else:
+            raise ValueError("Invalid indices type")
+        
+
+# TODO: This needs proper testing
+class NearestNeighborTSI(ApproxTSI):
+    """
+    The NearestNeighborTSI class is used to compute the nearest neighbor TSI between two representations.
+    """
+    def __init__(self, euclidean: bool = False, k: int = 10):
+        super().__init__(euclidean)
+        self.k = k
+
+    def __call__(self, representations: RepresentationPair):
+        """
+        Compute the nearest neighbor TSI between two representations.
+        """
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
+        n = len(X)
+        nn_x = NearestNeighbors(n_neighbors=self.k + 1, metric=d_x)
+        nn_y = NearestNeighbors(n_neighbors=self.k + 1, metric=d_y)
+        nn_x.fit(X)
+        nn_y.fit(Y)
+        for i in range(n):
+            x_neighbors = nn_x.kneighbors(X[[i]], return_distance=False).remove(i)
+            y_neighbors = nn_y.kneighbors(Y[[i]], return_distance=False).remove(i)
+            union_neighbors = np.unique(np.concatenate((x_neighbors, y_neighbors)))
+            aligned_triplets += super().__call__(representations, CompleteIndices(indices={i: union_neighbors})) * (len(union_neighbors) * (len(union_neighbors) - 1))
+        return aligned_triplets / (n * (n - 1) * (n - 2))
+    
+# TODO: This needs proper testing
+class BatchTSI(EfficientTSI):
+    """
+    The BatchTSI class is used to compute the batch TSI between two representations.
+    """
+    def __init__(self, euclidean: bool = False, memory_efficient: bool = True, batch_size: int = 100):
+        super().__init__(euclidean, memory_efficient)
+        self.batch_size = batch_size
+
+    def __call__(self, representations: RepresentationPair):
+        """
+        Compute the batch TSI between two representations.
+        """
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
+        n = len(X)
+        for i in range(0, n, self.batch_size):
+            batch_x = X[i:i+self.batch_size]
+            batch_y = Y[i:i+self.batch_size]
+            actual_batch_size = len(batch_x)
+            batched_representations = RepresentationPair(X=batch_x, Y=batch_y, d_x=d_x, d_y=d_y)
+            aligned_triplets += super().__call__(batched_representations) * (actual_batch_size * (actual_batch_size - 1))
         return aligned_triplets / (n * (n - 1) * (n - 2))

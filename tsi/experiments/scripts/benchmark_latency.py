@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Benchmark script for measuring latency of baseline measures vs TSI.
-Takes command line arguments for number of xticks, multiplicative factor, and initial datapoints.
+Takes command line arguments for number of xticks, additive factor, and initial datapoints.
 """
 
 import argparse
@@ -26,8 +26,7 @@ def benchmark_tsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
     d_x = lambda x, y: np.linalg.norm(x - y)
     d_y = lambda x, y: np.linalg.norm(x - y)
     representations = RepresentationPair(X, Y, d_x, d_y)
-    efficient_tsi = EfficientTSI(euclidean=True)
-    
+    efficient_tsi = EfficientTSI(euclidean=True, memory_efficient=True)
     start_time = time.time()
     score = efficient_tsi(representations)
     end_time = time.time()

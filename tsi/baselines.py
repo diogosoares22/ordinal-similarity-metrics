@@ -2,9 +2,7 @@ import time
 import numpy as np
 import similarity as sm
 
-BASELINE_MEASURES = ["platonic/cka","platonic/unbiased_cka","platonic/svcca"]
-
-"""[
+BASELINE_MEASURES = [
     "platonic/cka",
 	"platonic/cka_rbf",
 	"platonic/cknna_topk",
@@ -15,7 +13,7 @@ BASELINE_MEASURES = ["platonic/cka","platonic/unbiased_cka","platonic/svcca"]
 	"platonic/svcca",
 	"platonic/unbiased_cka",
 	"platonic/unbiased_cka_rbf"
-]"""
+]
 
 class BaselineMeasure:
     def __init__(self, name: str):
