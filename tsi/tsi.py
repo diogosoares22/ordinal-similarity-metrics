@@ -29,33 +29,16 @@ class PartialIndices:
 class CompleteIndices:
     indices: dict[int, list[int]]
 
+def tsi_predicate_with_sign_evaluation(i, j, k, X=None, Y=None, d_x=None, d_y=None, sign_x_evaluation=None, sign_y_evaluation=None):
+    if sign_x_evaluation is None:
+        sign_x_evaluation = np.sign(d_x(X[i], X[j]) - d_x(X[i], X[k]))
+    if sign_y_evaluation is None:
+        sign_y_evaluation = np.sign(d_y(Y[i], Y[j]) - d_y(Y[i], Y[k]))
+    return sign_x_evaluation == sign_y_evaluation
 
-class TSI:
-    """
-    The TSI class is used to compute the TSI between two representations.
-    """
-    def __init__(self):
-        pass
+def tsi_predicate(i, j, k, X, Y, d_x, d_y):
+    return np.sign(d_y(Y[i], Y[j]) - d_y(Y[i], Y[k])) == np.sign(d_x(X[i], X[j]) - d_x(X[i], X[k]))
 
-    def __call__(self, representations: RepresentationPair):
-        """
-        Compute the TSI between two representations. Let X and Y be two sets of points in a metric space.
-        Let d_X and d_Y be two distance functions on X and Y respectively.
-        Let T be a set of triplets of indices (i, j, k) where i, j, k are in {1, ..., N} and i != j != k.
-        """
-        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
-        n = len(X)
-        aligned_triplets = 0
-        for i in range(n):
-            for j in range(n):
-                if j == i:
-                    continue
-                for k in range(n):
-                    if k == i or k == j:
-                        continue
-                    aligned_triplets += np.sign(d_y(Y[i], Y[j]) - d_y(Y[i], Y[k])) == np.sign(d_x(X[i], X[j]) - d_x(X[i], X[k]))
-        return aligned_triplets / (n * (n - 1) * (n - 2))
-    
 def _compute_inversions_and_ties(distances_x, distances_y):
         """
         Compute the inversions and ties in the distances. Code inspired by scipy.stats.kendalltau.
@@ -96,7 +79,43 @@ def _compute_inversions_and_ties(distances_x, distances_y):
 
         neg = dis + (xtie - ntie) + (ytie - ntie)
 
-        return pos, neg    
+        return pos, neg
+
+def efficient_concordant_rank_computation(anchor=None, mask=None, X=None, Y=None, d_x=None, d_y=None, distances_x=None, distances_y=None):
+    if (anchor is None or mask is None or X is None or Y is None or d_x is None or d_y is None) and (distances_x is None or distances_y is None):
+        raise ValueError("Either anchor, mask, X, Y, d_x, d_y must be provided or distances_x and distances_y must be provided")
+    if distances_x is None:
+        distances_x = pairwise_distances(X[[anchor]], X[mask], metric=d_x)[0]
+    if distances_y is None:
+        distances_y = pairwise_distances(Y[[anchor]], Y[mask], metric=d_y)[0]
+    pos, _ = _compute_inversions_and_ties(distances_x, distances_y)
+    return 2 * pos
+
+class TSI:
+    """
+    The TSI class is used to compute the TSI between two representations.
+    """
+    def __init__(self):
+        pass
+
+    def __call__(self, representations: RepresentationPair):
+        """
+        Compute the TSI between two representations. Let X and Y be two sets of points in a metric space.
+        Let d_X and d_Y be two distance functions on X and Y respectively.
+        Let T be a set of triplets of indices (i, j, k) where i, j, k are in {1, ..., N} and i != j != k.
+        """
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
+        n = len(X)
+        aligned_triplets = 0
+        for i in range(n):
+            for j in range(n):
+                if j == i:
+                    continue
+                for k in range(n):
+                    if k == i or k == j:
+                        continue
+                    aligned_triplets += tsi_predicate(i, j, k, X, Y, d_x, d_y)
+        return aligned_triplets / (n * (n - 1) * (n - 2))    
     
 
 class EfficientTSI:
@@ -130,17 +149,15 @@ class EfficientTSI:
         results = pymp.shared.array((n))
         with pymp.Parallel(8) as p:
             for i in p.range(n):
+                distances_x = None
+                distances_y = None
                 if not self.memory_efficient:
                     distances_x = full_distances_x[i, :]
                     distances_y = full_distances_y[i, :]
                 else:
                     mask = np.ones(n, dtype=bool)
                     mask[i] = False
-                    distances_x = pairwise_distances(X[[i]], X[mask], metric=metric_x)[0]
-                    distances_y = pairwise_distances(Y[[i]], Y[mask], metric=metric_y)[0]
-                pos, _ = _compute_inversions_and_ties(distances_x, distances_y)
-                results[i] = 2 * pos
-        
+                results[i] = efficient_concordant_rank_computation(anchor=i, mask=mask, X=X, Y=Y, d_x=metric_x, d_y=metric_y, distances_x=distances_x, distances_y=distances_y)
         aligned_triplets = results.sum()
         return aligned_triplets / (n * (n - 1) * (n - 2))
     
@@ -160,7 +177,7 @@ class ApproxTSI:
         if isinstance(indices, PartialIndices):
             aligned_triplets = 0
             for triplet in indices.indices:
-                aligned_triplets += np.sign(d_y(Y[triplet[0]], Y[triplet[1]]) - d_y(Y[triplet[0]], Y[triplet[2]])) == np.sign(d_x(X[triplet[0]], X[triplet[1]]) - d_x(X[triplet[0]], X[triplet[2]]))
+                aligned_triplets += tsi_predicate(triplet[0], triplet[1], triplet[2], X, Y, d_x, d_y)
             return aligned_triplets / len(indices.indices)
         elif isinstance(indices, CompleteIndices):
             results = pymp.shared.array((n))
@@ -172,16 +189,13 @@ class ApproxTSI:
                     complete_indices = indices.indices[anchor]
                     mask = np.zeros(n, dtype=bool)
                     mask[complete_indices] = True
-                    distances_x = pairwise_distances(X[[anchor]], X[mask], metric=metric_x)[0]
-                    distances_y = pairwise_distances(Y[[anchor]], Y[mask], metric=metric_y)[0]
-                    pos, _ = _compute_inversions_and_ties(distances_x, distances_y)
-                    results[anchor] = 2 * pos
+                    results[anchor] = efficient_concordant_rank_computation(anchor=anchor, mask=mask, X=X, Y=Y, d_x=metric_x, d_y=metric_y)
                     total_triplets[anchor] = len(complete_indices) * (len(complete_indices) - 1)
             return results.sum() / total_triplets.sum()
         else:
             raise ValueError("Invalid indices type")
         
-
+# TODO: optimize this for time efficiency
 class NearestNeighborTSI(ApproxTSI):
     """
     The NearestNeighborTSI class is used to compute the nearest neighbor TSI between two representations.
@@ -239,3 +253,36 @@ class BatchTSI(EfficientTSI):
                 aligned_triplets += super().__call__(batched_representations) * (actual_batch_size * (actual_batch_size - 1))
                 considered_triplets += actual_batch_size * (actual_batch_size - 1)
         return aligned_triplets / considered_triplets
+    
+
+class OddOneOutTSI:
+    """
+    The OddOneOutTSI class is used to compute TSI between one representation and an implicit representation using odd-one-out observations.
+    """
+    def __init__(self, odd_one_out_observations: dict[tuple[int, int, int], int]):
+        self.odd_one_out_observations = odd_one_out_observations
+    
+    def _initialize_indices(self):
+        indices_to_sign_evaluation = {}
+        for triplet in self.odd_one_out_observations:
+            odd = self.odd_one_out_observations[triplet]
+            similar = list(triplet)
+            similar.remove(odd)
+            indices_to_sign_evaluation[(similar[0], odd, similar[1])] = 1
+            indices_to_sign_evaluation[(similar[0], similar[1], odd)] = -1
+            indices_to_sign_evaluation[(similar[1], odd, similar[0])] = 1
+            indices_to_sign_evaluation[(similar[1], similar[0], odd)] = -1
+        self.partial_indices = PartialIndices(indices=list(indices_to_sign_evaluation.keys()))
+        self.sign_evaluations = indices_to_sign_evaluation
+
+    def __call__(self, X: np.ndarray, d_x: Callable, initialize_indices: bool = True):
+        """
+        Compute the odd one out TSI between two representations.
+        """
+        if initialize_indices:
+            self._initialize_indices()
+        n = len(X)
+        aligned_triplets = 0
+        for indices in self.partial_indices.indices:
+            aligned_triplets += tsi_predicate_with_sign_evaluation(indices[0], indices[1], indices[2], X=X, d_x=d_x, sign_y_evaluation=self.sign_evaluations[indices])
+        return aligned_triplets / len(self.partial_indices.indices)

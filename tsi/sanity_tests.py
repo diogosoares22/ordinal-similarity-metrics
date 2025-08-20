@@ -2,8 +2,9 @@
 
 import time
 import argparse
-from tsi import TSI, ApproxTSI, EfficientTSI, RepresentationPair, PartialIndices, CompleteIndices, NearestNeighborTSI, BatchTSI
+from tsi import TSI, ApproxTSI, EfficientTSI, RepresentationPair, PartialIndices, CompleteIndices, NearestNeighborTSI, BatchTSI, OddOneOutTSI
 import numpy as np
+from dataclasses import dataclass
 
 class Example:
     def __init__(self, representations: RepresentationPair, expected_tsi, name, indices=None):
@@ -178,6 +179,26 @@ def test_batch_tsi_alignment_with_tsi_on_random_data_with_equalities():
     assert batch_tsi(representations) == tsi(representations)
     print("BatchTSI alignment with TSI on random data with equalities test passed")
 
+
+### OddOneOutTSI tests ###
+
+class OddOneOutExample:
+    def __init__(self, X, d_x, odd_one_out_observations, expected_tsi, name):
+        self.name = name
+        self.X = X
+        self.d_x = d_x
+        self.odd_one_out_observations = odd_one_out_observations
+        self.expected_tsi = expected_tsi
+
+
+curated_example_1_odd_one_out_tsi = OddOneOutExample(X=np.array([[0, 0], [1, 0], [3, 0], [4, 0]]), d_x=d_x, odd_one_out_observations={(0, 1, 2): 2, (0, 1, 3): 3, (0, 2, 3): 0}, expected_tsi=1, name="curated_example_1_odd_one_out_tsi")
+curated_example_2_odd_one_out_tsi = OddOneOutExample(X=np.array([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]]), d_x=d_x, odd_one_out_observations={(0, 1, 3): 1, (0, 1, 4): 0}, expected_tsi=1/4, name="curated_example_2_odd_one_out_tsi")
+
+def test_odd_one_out_tsi_on_example(odd_one_out_example):
+    odd_one_out_tsi = OddOneOutTSI(odd_one_out_observations=odd_one_out_example.odd_one_out_observations)
+    assert odd_one_out_tsi(odd_one_out_example.X, odd_one_out_example.d_x) == odd_one_out_example.expected_tsi
+    print(f"OddOneOutTSI on example {odd_one_out_example.name} test passed")
+
 def run_tsi_tests():
     """Run tests for TSI implementation"""
     test_tsi_on_example(curated_example_1)
@@ -220,19 +241,32 @@ def run_batch_tsi_tests():
     test_batch_tsi_alignment_with_tsi_on_random_data()
     test_batch_tsi_alignment_with_tsi_on_random_data_with_equalities()
 
+def run_odd_one_out_tsi_tests():
+    """Run tests for OddOneOutTSI implementation"""
+    test_odd_one_out_tsi_on_example(curated_example_1_odd_one_out_tsi)
+    test_odd_one_out_tsi_on_example(curated_example_2_odd_one_out_tsi)
+
 
 def main():
     parser = argparse.ArgumentParser(description='Run TSI sanity tests')
     parser.add_argument('--test-subject', 
-                       choices=['TSI', 'ApproxTSI', 'EfficientTSI', 'NearestNeighborTSI', 'BatchTSI'], 
-                       required=True,
+                       choices=['All', 'TSI', 'ApproxTSI', 'EfficientTSI', 'NearestNeighborTSI', 'BatchTSI', 'OddOneOutTSI'], 
+                       default='All',
                        help='Specify which TSI implementation to test')
     
     args = parser.parse_args()
     
     print(f"Running tests for {args.test_subject}")
+
     
-    if args.test_subject == 'TSI':
+    if args.test_subject == 'All':
+        run_tsi_tests()
+        run_approx_tsi_tests()
+        run_efficient_tsi_tests()
+        run_nearest_neighbor_tsi_tests()
+        run_batch_tsi_tests()
+        run_odd_one_out_tsi_tests()
+    elif args.test_subject == 'TSI':
         run_tsi_tests()
     elif args.test_subject == 'ApproxTSI':
         run_approx_tsi_tests()
@@ -242,6 +276,8 @@ def main():
         run_nearest_neighbor_tsi_tests()
     elif args.test_subject == 'BatchTSI':
         run_batch_tsi_tests()
+    elif args.test_subject == 'OddOneOutTSI':
+        run_odd_one_out_tsi_tests()
     
     print(f"\nAll {args.test_subject} tests completed successfully!")
 
