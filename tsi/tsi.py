@@ -182,7 +182,6 @@ class ApproxTSI:
             raise ValueError("Invalid indices type")
         
 
-# TODO: This needs proper testing
 class NearestNeighborTSI(ApproxTSI):
     """
     The NearestNeighborTSI class is used to compute the nearest neighbor TSI between two representations.
@@ -194,6 +193,8 @@ class NearestNeighborTSI(ApproxTSI):
     def __call__(self, representations: RepresentationPair):
         """
         Compute the nearest neighbor TSI between two representations.
+
+        Note: the training data should be ordered by source input order. Otherwise, stable results are not guaranteed.
         """
         X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
         n = len(X)
@@ -201,14 +202,18 @@ class NearestNeighborTSI(ApproxTSI):
         nn_y = NearestNeighbors(n_neighbors=self.k + 1, metric=d_y)
         nn_x.fit(X)
         nn_y.fit(Y)
+        aligned_triplets = 0
+        considered_triplets = 0
         for i in range(n):
-            x_neighbors = nn_x.kneighbors(X[[i]], return_distance=False).remove(i)
-            y_neighbors = nn_y.kneighbors(Y[[i]], return_distance=False).remove(i)
+            x_neighbors = nn_x.kneighbors(X[[i]], return_distance=False)[0]
+            y_neighbors = nn_y.kneighbors(Y[[i]], return_distance=False)[0]
+            x_neighbors = np.delete(x_neighbors, np.where(x_neighbors == i))
+            y_neighbors = np.delete(y_neighbors, np.where(y_neighbors == i))
             union_neighbors = np.unique(np.concatenate((x_neighbors, y_neighbors)))
             aligned_triplets += super().__call__(representations, CompleteIndices(indices={i: union_neighbors})) * (len(union_neighbors) * (len(union_neighbors) - 1))
-        return aligned_triplets / (n * (n - 1) * (n - 2))
+            considered_triplets += len(union_neighbors) * (len(union_neighbors) - 1)
+        return aligned_triplets / considered_triplets
     
-# TODO: This needs proper testing
 class BatchTSI(EfficientTSI):
     """
     The BatchTSI class is used to compute the batch TSI between two representations.
@@ -223,10 +228,14 @@ class BatchTSI(EfficientTSI):
         """
         X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
         n = len(X)
+        aligned_triplets = 0
+        considered_triplets = 0
         for i in range(0, n, self.batch_size):
             batch_x = X[i:i+self.batch_size]
             batch_y = Y[i:i+self.batch_size]
             actual_batch_size = len(batch_x)
-            batched_representations = RepresentationPair(X=batch_x, Y=batch_y, d_x=d_x, d_y=d_y)
-            aligned_triplets += super().__call__(batched_representations) * (actual_batch_size * (actual_batch_size - 1))
-        return aligned_triplets / (n * (n - 1) * (n - 2))
+            if actual_batch_size >= 3:
+                batched_representations = RepresentationPair(X=batch_x, Y=batch_y, d_x=d_x, d_y=d_y)
+                aligned_triplets += super().__call__(batched_representations) * (actual_batch_size * (actual_batch_size - 1))
+                considered_triplets += actual_batch_size * (actual_batch_size - 1)
+        return aligned_triplets / considered_triplets

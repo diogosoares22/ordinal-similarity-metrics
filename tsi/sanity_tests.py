@@ -2,7 +2,7 @@
 
 import time
 import argparse
-from tsi import TSI, ApproxTSI, EfficientTSI, RepresentationPair, PartialIndices, CompleteIndices
+from tsi import TSI, ApproxTSI, EfficientTSI, RepresentationPair, PartialIndices, CompleteIndices, NearestNeighborTSI, BatchTSI
 import numpy as np
 
 class Example:
@@ -19,27 +19,12 @@ curated_example_1 = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1
 curated_example_2 = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [1, 1]]), Y=np.array([[0, 0], [1, 0], [0, 1], [2, 2]]), d_x=d_x, d_y=d_y), 2/3, "curated_example_2")
 curated_example_3 = Example(RepresentationPair(X=np.array([[0, 0], [2, 0], [3, 0]]), Y=np.array([[0, 0], [2, 0], [1, 0]]), d_x=d_x, d_y=d_y), 1/3, "curated_example_3")
 
-curated_example_4_with_partial_indices = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1]]), Y=np.array([[0, 0], [1, 0], [1, 1]]), d_x=d_x, d_y=d_y), 0.0, "curated_example_4", indices=PartialIndices(indices=[(0, 1, 2)]))
-curated_example_5_with_partial_indices = Example(RepresentationPair(X=np.array([[0, 0], [2, 0], [3, 0]]), Y=np.array([[0, 0], [2, 0], [1, 0]]), d_x=d_x, d_y=d_y), 1.0, "curated_example_5", indices=PartialIndices(indices=[(1, 2, 0)]))
-
-curated_example_6_with_complete_indices = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1]]), Y=np.array([[0, 0], [1, 0], [1, 1]]), d_x=d_x, d_y=d_y), 0.0, "curated_example_6", indices=CompleteIndices(indices={0: [1, 2], 1: [0, 2]}))
-curated_example_7_with_complete_indices = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [1, 1]]), Y=np.array([[0, 0], [1, 0], [0, 1], [2, 2]]), d_x=d_x, d_y=d_y), 1/2, "curated_example_7", indices=CompleteIndices(indices={0: [1, 2], 1: [0, 2, 3]}))
-
+### TSI tests ###
 
 def test_tsi_on_example(example):
     tsi = TSI()
     assert tsi(example.representations) == example.expected_tsi
     print(f"TSI on example {example.name} test passed")
-
-def test_approx_tsi_on_example_with_partial_indices(example):
-    approx_tsi = ApproxTSI()
-    assert approx_tsi(example.representations, example.indices) == example.expected_tsi
-    print(f"ApproxTSI on example {example.name} test with partial indices passed")
-
-def test_approx_tsi_on_example_with_complete_indices(example):
-    approx_tsi = ApproxTSI()
-    assert approx_tsi(example.representations, example.indices) == example.expected_tsi
-    print(f"ApproxTSI on example {example.name} test with complete indices passed")
 
 def test_tsi_on_random_data():
     X = np.random.rand(30, 3)
@@ -50,6 +35,25 @@ def test_tsi_on_random_data():
     tsi = TSI()
     assert tsi(representations) == 1.0
     print("TSI on random data test passed")
+
+### ApproxTSI tests ###
+
+curated_example_1_partial_indices = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1]]), Y=np.array([[0, 0], [1, 0], [1, 1]]), d_x=d_x, d_y=d_y), 0.0, "curated_example_1_partial_indices", indices=PartialIndices(indices=[(0, 1, 2)]))
+curated_example_2_partial_indices = Example(RepresentationPair(X=np.array([[0, 0], [2, 0], [3, 0]]), Y=np.array([[0, 0], [2, 0], [1, 0]]), d_x=d_x, d_y=d_y), 1.0, "curated_example_2_partial_indices", indices=PartialIndices(indices=[(1, 2, 0)]))
+
+curated_example_1_complete_indices = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1]]), Y=np.array([[0, 0], [1, 0], [1, 1]]), d_x=d_x, d_y=d_y), 0.0, "curated_example_1_complete_indices", indices=CompleteIndices(indices={0: [1, 2], 1: [0, 2]}))
+curated_example_2_complete_indices = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [1, 1]]), Y=np.array([[0, 0], [1, 0], [0, 1], [2, 2]]), d_x=d_x, d_y=d_y), 1/2, "curated_example_2_complete_indices", indices=CompleteIndices(indices={0: [1, 2], 1: [0, 2, 3]}))
+
+
+def test_approx_tsi_on_example_with_partial_indices(example):
+    approx_tsi = ApproxTSI()
+    assert approx_tsi(example.representations, example.indices) == example.expected_tsi
+    print(f"ApproxTSI on example {example.name} test with partial indices passed")
+
+def test_approx_tsi_on_example_with_complete_indices(example):
+    approx_tsi = ApproxTSI()
+    assert approx_tsi(example.representations, example.indices) == example.expected_tsi
+    print(f"ApproxTSI on example {example.name} test with complete indices passed")
 
 def test_approx_tsi_alignment_with_tsi_with_partial_indices():
     X = np.random.rand(30, 3)
@@ -74,6 +78,8 @@ def test_approx_tsi_alignment_with_tsi_with_complete_indices():
     tsi = TSI()
     assert approx_tsi(representations, complete_indices) == tsi(representations)
     print("ApproxTSI alignment with TSI test with complete indices passed")
+
+### EfficientTSI tests ###
 
 def test_efficient_tsi_on_example(example):
     efficient_tsi = EfficientTSI(euclidean=False)
@@ -102,22 +108,75 @@ def test_efficient_tsi_alignment_with_tsi_on_random_data_with_equalities():
     assert efficient_tsi(representations) == tsi(representations)
     print("EfficientTSI alignment with TSI test on random data with equalities passed")
 
-def compare_tsi_and_efficient_tsi():
-    X = np.random.rand(50, 20)
-    Y = np.random.rand(50, 20)
+### NearestNeighborTSI tests ###
+
+curated_example_1_2_nearest_neighbor_tsi = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [5, 0], [7, 0], [8, 0]]), Y=np.array([[0, 0], [1, 0], [1, 1], [5, 0], [7, 0], [6, 0]]), d_x=d_x, d_y=d_y), 1/6, "curated_example_1_nearest_neighbor_tsi")
+curated_example_2_2_nearest_neighbor_tsi = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [5, 0], [7, 0], [8, 0]]), Y=np.array([[0, 0], [1, 0], [0, 1], [5, 0], [7, 0], [6, 0]]), d_x=d_x, d_y=d_y), 2/3, "curated_example_2_nearest_neighbor_tsi")
+curated_example_3_2_nearest_neighbor_tsi = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [5, 0], [7, 0], [8, 0]]), Y=np.array([[0, 0], [1, 0], [0, 1], [5, 0], [7, 0], [8, 0]]), d_x=d_x, d_y=d_y), 1, "curated_example_3_nearest_neighbor_tsi")
+curated_example_4_3_nearest_neighbor_tsi = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [1, 1]]), Y=np.array([[0, 0], [1, 0], [0, 1], [2, 2]]), d_x=d_x, d_y=d_y), 2/3, "curated_example_4_nearest_neighbor_tsi")
+curated_example_5_2_nearest_neighbor_tsi = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [3, 3]]), Y=np.array([[0, 0], [1, 0], [0, 1], [-0.1, -0.1]]), d_x=d_x, d_y=d_y), 1/2, "curated_example_5_nearest_neighbor_tsi")
+
+
+def test_nearest_neighbor_tsi_on_example(example, k):
+    nearest_neighbor_tsi = NearestNeighborTSI(k=k, euclidean=False)
+    assert nearest_neighbor_tsi(example.representations) == example.expected_tsi
+    print(f"NearestNeighborTSI on example {example.name} test passed")
+
+def test_nearest_neighbor_tsi_alignment_with_tsi_on_random_data():
+    X = np.random.rand(30, 3)
+    Y = np.random.rand(30, 3)
     d_x = lambda x, y: np.linalg.norm(x - y)
     d_y = lambda x, y: np.linalg.norm(x - y)
     representations = RepresentationPair(X, Y, d_x, d_y)
-    efficient_tsi = EfficientTSI(euclidean=False)
+    nearest_neighbor_tsi = NearestNeighborTSI(k=29, euclidean=False)
     tsi = TSI()
-    start_time = time.time()
-    tsi(representations)
-    end_time = time.time()
-    print(f"Time taken by TSI: {end_time - start_time}")
-    start_time = time.time()
-    efficient_tsi(representations)
-    end_time = time.time()
-    print(f"Time taken by EfficientTSI: {end_time - start_time}")
+    assert nearest_neighbor_tsi(representations) == tsi(representations)
+    print("NearestNeighborTSI alignment with TSI on random data test passed")
+
+def test_nearest_neighbor_tsi_alignment_with_tsi_on_random_data_with_equalities():
+    X = np.random.rand(30, 3)
+    Y = np.concatenate((X[:15], X[:15]), axis=0)
+    d_x = lambda x, y: np.linalg.norm(x - y)
+    d_y = lambda x, y: np.linalg.norm(x - y)
+    representations = RepresentationPair(X, Y, d_x, d_y)
+    nearest_neighbor_tsi = NearestNeighborTSI(k=29, euclidean=False)
+    tsi = TSI()
+    assert nearest_neighbor_tsi(representations) == tsi(representations)
+    print("NearestNeighborTSI alignment with TSI on random data with equalities test passed")
+
+### BatchTSI tests ###
+
+curated_example_1_3_batch_tsi = Example(RepresentationPair(X=np.array([[0, 0], [1, 0], [0, 1], [5, 0], [7, 0], [8, 0]]), Y=np.array([[0, 0], [1, 0], [1, 1], [5, 0], [7, 0], [6, 0]]), d_x=d_x, d_y=d_y), 1/6, "curated_example_1_batch_tsi")
+curated_example_2_3_batch_tsi = Example(RepresentationPair(X=np.array([[0, 0], [2, 0], [3, 0], [5, 0], [7, 0], [8, 0]]), Y=np.array([[0, 0], [2, 0], [3, 0], [5, 0], [7, 0], [6, 0]]), d_x=d_x, d_y=d_y), 2/3, "curated_example_2_batch_tsi")
+curated_example_3_3_batch_tsi = Example(RepresentationPair(X=np.array([[0, 0], [2, 0], [3, 0], [5, 0], [7, 0], [8, 0], [-1, -1]]), Y=np.array([[0, 0], [2, 0], [3, 0], [5, 0], [7, 0], [6, 0], [-1, -1]]), d_x=d_x, d_y=d_y), 2/3, "curated_example_3_batch_tsi")
+
+
+def test_batch_tsi_on_example(example):
+    batch_tsi = BatchTSI(euclidean=False, batch_size=3)
+    assert batch_tsi(example.representations) == example.expected_tsi
+    print(f"BatchTSI on example {example.name} test passed")
+
+def test_batch_tsi_alignment_with_tsi_on_random_data():
+    X = np.random.rand(30, 3)
+    Y = np.random.rand(30, 3)
+    d_x = lambda x, y: np.linalg.norm(x - y)
+    d_y = lambda x, y: np.linalg.norm(x - y)
+    representations = RepresentationPair(X, Y, d_x, d_y)
+    batch_tsi = BatchTSI(euclidean=False, batch_size=30)
+    tsi = TSI()
+    assert batch_tsi(representations) == tsi(representations)
+    print("BatchTSI alignment with TSI on random data test passed")
+
+def test_batch_tsi_alignment_with_tsi_on_random_data_with_equalities():
+    X = np.random.rand(30, 3)
+    Y = np.concatenate((X[:15], X[:15]), axis=0)
+    d_x = lambda x, y: np.linalg.norm(x - y)
+    d_y = lambda x, y: np.linalg.norm(x - y)
+    representations = RepresentationPair(X, Y, d_x, d_y)
+    batch_tsi = BatchTSI(euclidean=False, batch_size=30)
+    tsi = TSI()
+    assert batch_tsi(representations) == tsi(representations)
+    print("BatchTSI alignment with TSI on random data with equalities test passed")
 
 def run_tsi_tests():
     """Run tests for TSI implementation"""
@@ -128,11 +187,11 @@ def run_tsi_tests():
 
 def run_approx_tsi_tests():
     """Run tests for ApproxTSI implementation"""
-    test_approx_tsi_on_example_with_partial_indices(curated_example_4_with_partial_indices)
-    test_approx_tsi_on_example_with_partial_indices(curated_example_5_with_partial_indices)
-    test_approx_tsi_on_example_with_complete_indices(curated_example_6_with_complete_indices)
-    test_approx_tsi_on_example_with_complete_indices(curated_example_7_with_complete_indices)
+    test_approx_tsi_on_example_with_partial_indices(curated_example_1_partial_indices)
+    test_approx_tsi_on_example_with_partial_indices(curated_example_2_partial_indices)
     test_approx_tsi_alignment_with_tsi_with_partial_indices()
+    test_approx_tsi_on_example_with_complete_indices(curated_example_1_complete_indices)
+    test_approx_tsi_on_example_with_complete_indices(curated_example_2_complete_indices)
     test_approx_tsi_alignment_with_tsi_with_complete_indices()
 
 def run_efficient_tsi_tests():
@@ -143,10 +202,29 @@ def run_efficient_tsi_tests():
     test_efficient_tsi_alignment_with_tsi_on_random_data()
     test_efficient_tsi_alignment_with_tsi_on_random_data_with_equalities()
 
+def run_nearest_neighbor_tsi_tests():
+    """Run tests for NearestNeighborTSI implementation"""
+    test_nearest_neighbor_tsi_on_example(curated_example_1_2_nearest_neighbor_tsi, 2)
+    test_nearest_neighbor_tsi_on_example(curated_example_2_2_nearest_neighbor_tsi, 2)
+    test_nearest_neighbor_tsi_on_example(curated_example_3_2_nearest_neighbor_tsi, 2)
+    test_nearest_neighbor_tsi_on_example(curated_example_4_3_nearest_neighbor_tsi, 3)
+    test_nearest_neighbor_tsi_on_example(curated_example_5_2_nearest_neighbor_tsi, 2)
+    test_nearest_neighbor_tsi_alignment_with_tsi_on_random_data()
+    test_nearest_neighbor_tsi_alignment_with_tsi_on_random_data_with_equalities()
+
+def run_batch_tsi_tests():
+    """Run tests for BatchTSI implementation"""
+    test_batch_tsi_on_example(curated_example_1_3_batch_tsi)
+    test_batch_tsi_on_example(curated_example_2_3_batch_tsi)
+    test_batch_tsi_on_example(curated_example_3_3_batch_tsi)
+    test_batch_tsi_alignment_with_tsi_on_random_data()
+    test_batch_tsi_alignment_with_tsi_on_random_data_with_equalities()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Run TSI sanity tests')
     parser.add_argument('--test-subject', 
-                       choices=['TSI', 'ApproxTSI', 'EfficientTSI'], 
+                       choices=['TSI', 'ApproxTSI', 'EfficientTSI', 'NearestNeighborTSI', 'BatchTSI'], 
                        required=True,
                        help='Specify which TSI implementation to test')
     
@@ -160,11 +238,10 @@ def main():
         run_approx_tsi_tests()
     elif args.test_subject == 'EfficientTSI':
         run_efficient_tsi_tests()
-    
-    # Always run the comparison at the end if EfficientTSI is being tested
-    if args.test_subject == 'EfficientTSI':
-        print("\nRunning performance comparison:")
-        compare_tsi_and_efficient_tsi()
+    elif args.test_subject == 'NearestNeighborTSI':
+        run_nearest_neighbor_tsi_tests()
+    elif args.test_subject == 'BatchTSI':
+        run_batch_tsi_tests()
     
     print(f"\nAll {args.test_subject} tests completed successfully!")
 
