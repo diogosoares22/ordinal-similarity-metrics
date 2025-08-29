@@ -26,7 +26,7 @@ def benchmark_tsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
     d_x = lambda x, y: np.linalg.norm(x - y)
     d_y = lambda x, y: np.linalg.norm(x - y)
     representations = RepresentationPair(X, Y, d_x, d_y)
-    efficient_tsi = EfficientTSI(euclidean=True, memory_efficient=True)
+    efficient_tsi = EfficientTSI(euclidean=True, memory_efficient=False)
     start_time = time.time()
     score = efficient_tsi(representations)
     end_time = time.time()
@@ -41,13 +41,13 @@ def benchmark_baselines(X: np.ndarray, Y: np.ndarray) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description='Benchmark latency of baseline measures vs TSI')
-    parser.add_argument('--xticks', type=int, default=30, required=False, 
+    parser.add_argument('--xticks', type=int, default=10, required=False, 
                        help='Number of data points to test (x-axis ticks)')
     parser.add_argument('--factor', type=float, default=500, required=False,
                        help='Additives factor to increase data points')
     parser.add_argument('--initial', type=int, default=1000, required=False,
                        help='Initial number of data points')
-    parser.add_argument('--with-tsi', action='store_true', default=False,
+    parser.add_argument('--with-tsi', action='store_true', default=True,
                        help='Whether to include TSI in the benchmark')
     
     args = parser.parse_args()
@@ -89,7 +89,7 @@ def main():
     
     df = pd.DataFrame(results)
     
-    results_dir = Path(__file__).parent.parent / 'results'
+    results_dir = Path(__file__).parent.parent / 'results/benchmark_latency'
     results_dir.mkdir(exist_ok=True)
     
     filename = f"latency_benchmark_xticks{args.xticks}_factor{args.factor}_initial{args.initial}.csv"

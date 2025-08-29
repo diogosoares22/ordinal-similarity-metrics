@@ -151,6 +151,7 @@ class EfficientTSI:
             for i in p.range(n):
                 distances_x = None
                 distances_y = None
+                mask = None
                 if not self.memory_efficient:
                     distances_x = full_distances_x[i, :]
                     distances_y = full_distances_y[i, :]
