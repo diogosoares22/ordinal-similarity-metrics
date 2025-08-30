@@ -5,6 +5,7 @@ import similarity as sm
 BASELINE_MEASURES = {
     "CKA": "measure/representation_similarity/cka-kernel=linear-hsic=gretton-score",
 	"CKNNA": "measure/platonic/cknna-topk={topk}",
+    "MutualNN": "measure/platonic/mutual_knn-topk={topk}",
     "SVCCA": "measure/svcca/cca-score",
     "PWCCA": "measure/svcca/pwcca-score",
     "Kendall-RDM": "measure/rsatoolbox/rsa-rdm=squared_euclidean-compare=tau_a",
