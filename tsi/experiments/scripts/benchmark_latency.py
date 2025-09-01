@@ -72,8 +72,8 @@ def main():
         
         if args.with_tsi:
             tsi_score, tsi_time = benchmark_tsi(X, Y)
-            result_row['tsi_score'] = tsi_score
-            result_row['tsi_time'] = tsi_time
+            result_row['TSI_score'] = tsi_score
+            result_row['TSI_time'] = tsi_time
         
         baseline_results = benchmark_baselines(X, Y)
         

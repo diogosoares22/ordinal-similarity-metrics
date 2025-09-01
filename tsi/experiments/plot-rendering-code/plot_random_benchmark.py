@@ -31,8 +31,6 @@ def load_and_process_data(csv_path: str) -> pd.DataFrame:
     # Extract measure names from column headers
     score_columns = [col for col in df.columns if col.endswith('_score')]
     
-    score_columns = [col for col in score_columns if col != 'TSI_score']
-    
     # The measure names are already clean from baselines.py
     # Just extract the base name and use as display name
     measure_names = {}
