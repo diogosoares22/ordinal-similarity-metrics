@@ -1,6 +1,6 @@
-# triplet-similarity-index
-Repository contains the code for a similarity metric called Triplet Similarity Index (TSI)
+# ordinal-similarity-metrics
+Repository contains the code for a ordinal similarity metrics called Triplet Similarity Index (TSI) and Quadruplet Similarity Index (QSI)
 
-conda create -n triplet-similarity-index python=3.11
+conda create -n ordinal-similarity-metrics python=3.11
 
 pip install -e .
