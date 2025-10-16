@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Benchmark script for random data similarity measures.
-Tests baseline measures on random case: X vs Y (independent random data).
+Benchmark script for independent data similarity measures.
+Tests baseline measures on independent case: X vs Y (independent data).
 Includes two experiments:
-1. Varying N (n_min to n_max) with fixed D=500
-2. Varying D (50 to 500) with fixed N=2000
+1. Varying N (n_min to n_max) with fixed D
+2. Varying D (d_min to d_max) with fixed N
 """
 
 import argparse
@@ -12,14 +12,16 @@ import time
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from tsi.baselines import run_baseline_measures
-from tsi.tsi import EfficientTSI, RepresentationPair
+from src.baselines import run_baseline_measures
+from src.qsi import EfficientQSI
+from src.tsi import EfficientTSI
+from src.data import RepresentationPair
 
 
 def generate_random_data(n_points: int, dim: int, seed: int | None):
     """Generate two independent random datasets X and Y."""
     rng = np.random.default_rng(seed)
-    # Generate data in range [0.1, 1.0]
+    # Generate data in range [0.0, 1.0)
     X = rng.random((n_points, dim))
     
     # Use different seed for Y to ensure independence
@@ -40,6 +42,17 @@ def benchmark_tsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
     end_time = time.time()
     return score, end_time - start_time
 
+def benchmark_qsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
+    """Benchmark QSI computation time."""
+    d_x = lambda x, y: np.linalg.norm(x - y)
+    d_y = lambda x, y: np.linalg.norm(x - y)
+    representations = RepresentationPair(X, Y, d_x, d_y)
+    efficient_qsi = EfficientQSI(euclidean=True)
+    start_time = time.time()
+    score = efficient_qsi(representations)
+    end_time = time.time()
+    return score, end_time - start_time
+
 
 def benchmark_baselines(X: np.ndarray, Y: np.ndarray) -> dict:
     """Benchmark baseline measures computation time."""
@@ -50,7 +63,16 @@ def run_n_experiment(args):
     """Run experiment varying N with fixed D."""
     print(f"=== EXPERIMENT 1: Varying N (fixed D={args.fixed_d}) ===")
     
-    n_values = list(range(args.n_points_min, args.n_points_max + 1, args.n_points_step))
+    # Generate N values using multiplicative factor
+    n_values = []
+    current = int(args.n_points_min)
+    while current <= args.n_points_max:
+        n_values.append(int(current))
+        next_value = current * args.n_points_factor
+        # Guard against non-increasing sequences due to rounding or bad factor
+        if next_value <= current:
+            break
+        current = int(next_value)
     fixed_dim = args.fixed_d
     
     print(f"N values: {n_values}")
@@ -76,7 +98,7 @@ def run_n_experiment(args):
                 'dim': fixed_dim,
                 'run': run_idx + 1,
                 'seed': run_seed,
-                'case': 'random'
+                'case': 'independent'
             }
             
             # Run TSI
@@ -91,6 +113,17 @@ def run_n_experiment(args):
                 row['TSI_time'] = np.nan
             
             # Run baselines
+            # Run QSI
+            try:
+                qsi_score, qsi_time = benchmark_qsi(X, Y)
+                row['QSI_score'] = qsi_score
+                row['QSI_time'] = qsi_time
+                print(f"    QSI: score={qsi_score:.6f}, time={qsi_time:.4f}s")
+            except Exception as e:
+                print(f"    QSI failed: {e}")
+                row['QSI_score'] = np.nan
+                row['QSI_time'] = np.nan
+            
             try:
                 baseline_results = benchmark_baselines(X, Y)
                 for measure_name, (score, time_taken) in baseline_results.items():
@@ -111,10 +144,19 @@ def run_n_experiment(args):
 
 
 def run_d_experiment(args):
-    """Run experiment varying D with fixed N=2000."""
-    print("=== EXPERIMENT 2: Varying D (fixed N=2000) ===")
+    """Run experiment varying D with fixed N."""
+    print("=== EXPERIMENT 2: Varying D (fixed N={args.fixed_n}) ===")
     
-    d_values = list(range(args.dim_min, args.dim_max + 1, args.dim_step))
+    # Generate D values using multiplicative factor
+    d_values = []
+    current = int(args.dim_min)
+    while current <= args.dim_max:
+        d_values.append(int(current))
+        next_value = current * args.dim_factor
+        # Guard against non-increasing sequences due to rounding or bad factor
+        if next_value <= current:
+            break
+        current = int(next_value)
     fixed_n = args.fixed_n
     
     print(f"D values: {d_values}")
@@ -140,7 +182,7 @@ def run_d_experiment(args):
                 'dim': dim,
                 'run': run_idx + 1,
                 'seed': run_seed,
-                'case': 'random'
+                'case': 'independent'
             }
             
             # Run TSI
@@ -153,6 +195,17 @@ def run_d_experiment(args):
                 print(f"    TSI failed: {e}")
                 row['TSI_score'] = np.nan
                 row['TSI_time'] = np.nan
+            
+            # Run QSI
+            try:
+                qsi_score, qsi_time = benchmark_qsi(X, Y)
+                row['QSI_score'] = qsi_score
+                row['QSI_time'] = qsi_time
+                print(f"    QSI: score={qsi_score:.6f}, time={qsi_time:.4f}s")
+            except Exception as e:
+                print(f"    QSI failed: {e}")
+                row['QSI_score'] = np.nan
+                row['QSI_time'] = np.nan
             
             # Run baselines
             try:
@@ -176,29 +229,29 @@ def run_d_experiment(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Random case benchmark: two experiments - varying N (fixed D) and varying D (fixed N)'
+        description='Independent case benchmark: two experiments - varying N (fixed D) and varying D (fixed N)'
     )
     # Dataset parameters for experiment 1 (varying N)
-    parser.add_argument('--n-points-min', type=int, default=1000, help='Minimum number of points for varying N experiment')
-    parser.add_argument('--n-points-max', type=int, default=2000, help='Maximum number of points for varying N experiment')
-    parser.add_argument('--n-points-step', type=int, default=100, help='Step size for number of points in varying N experiment')
+    parser.add_argument('--n-points-min', type=int, default=50, help='Minimum number of points for varying N experiment')
+    parser.add_argument('--n-points-max', type=int, default=6400, help='Maximum number of points for varying N experiment')
+    parser.add_argument('--n-points-factor', type=float, default=2.0, help='Multiplicative factor for number of points in varying N experiment')
     parser.add_argument('--fixed-d', type=int, default=500, help='Fixed dimensionality for varying N experiment')
     
     # Dataset parameters for experiment 2 (varying D)
     parser.add_argument('--dim-min', type=int, default=50, help='Minimum dimensionality for varying D experiment')
-    parser.add_argument('--dim-max', type=int, default=500, help='Maximum dimensionality for varying D experiment')
-    parser.add_argument('--dim-step', type=int, default=50, help='Step size for dimensionality in varying D experiment')
-    parser.add_argument('--fixed-n', type=int, default=2000, help='Fixed number of points for varying D experiment')
+    parser.add_argument('--dim-max', type=int, default=6400, help='Maximum dimensionality for varying D experiment')
+    parser.add_argument('--dim-factor', type=float, default=2.0, help='Multiplicative factor for dimensionality in varying D experiment')
+    parser.add_argument('--fixed-n', type=int, default=1000, help='Fixed number of points for varying D experiment')
     
     # General parameters
     parser.add_argument('--seed', type=int, default=0, help='RNG seed')
-    parser.add_argument('--runs', type=int, default=5, help='Number of runs per configuration (for averaging)')
+    parser.add_argument('--runs', type=int, default=20, help='Number of runs per configuration (for averaging)')
     parser.add_argument('--experiment', choices=['n', 'd', 'both'], default='both', 
                        help='Which experiment to run: n (varying N), d (varying D), or both')
 
     args = parser.parse_args()
 
-    print(f"Random Case Benchmark:")
+    print(f"Independent Case Benchmark:")
     print(f"RNG seed: {args.seed}")
     print(f"Runs per configuration: {args.runs}")
     print(f"Running experiment(s): {args.experiment}")
@@ -214,20 +267,19 @@ def main():
     if args.experiment in ['d', 'both']:
         d_results = run_d_experiment(args)
         all_results.extend(d_results)
-
     # Create DataFrame and save results
     df = pd.DataFrame(all_results)
 
     # Save CSV
-    results_dir = Path(__file__).parent.parent / 'results/benchmark_random'
+    results_dir = Path(__file__).parent.parent / 'results/benchmark_independent_representations'
     results_dir.mkdir(parents=True, exist_ok=True)
     
     if args.experiment == 'both':
-        filename = f"random_benchmark_both_experiments_runs{args.runs}_seed{args.seed}.csv"
+        filename = f"independent_representations_benchmark_both_experiments_runs{args.runs}_seed{args.seed}.csv"
     elif args.experiment == 'n':
-        filename = f"random_benchmark_varying_n_n{args.n_points_min}-{args.n_points_max}_d{args.fixed_d}_runs{args.runs}_seed{args.seed}.csv"
+        filename = f"independent_representations_benchmark_varying_n_n{args.n_points_min}-{args.n_points_max}_d{args.fixed_d}_runs{args.runs}_seed{args.seed}.csv"
     else:  # experiment == 'd'
-        filename = f"random_benchmark_varying_d_d{args.dim_min}-{args.dim_max}_n{args.fixed_n}_runs{args.runs}_seed{args.seed}.csv"
+        filename = f"independent_representations_benchmark_varying_d_d{args.dim_min}-{args.dim_max}_n{args.fixed_n}_runs{args.runs}_seed{args.seed}.csv"
     
     filepath = results_dir / filename
     df.to_csv(filepath, index=False)
@@ -269,8 +321,8 @@ def main():
         print(f"  Varying N experiment: {n_measurements} measurements")
         print(f"  Varying D experiment: {d_measurements} measurements")
     
-    baseline_count = len([col for col in score_columns if not col.startswith('TSI')])
-    print(f"Measures tested: TSI + {baseline_count} baselines")
+    baseline_count = len([col for col in score_columns if not col.startswith('TSI') and not col.startswith('QSI')])
+    print(f"Measures tested: TSI + QSI + {baseline_count} baselines")
 
 
 if __name__ == "__main__":

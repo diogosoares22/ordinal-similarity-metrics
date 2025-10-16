@@ -3,9 +3,9 @@ requires = ["flit_core >=3.7,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "tsi"
+name = "src"
 version = "0.1.0"
-description = "A metric to measure similarity using triplets"
+description = "Metrics to measure ordinal similarities"
 authors = [
   { name="Your Name", email="your@email.com" },
 ]

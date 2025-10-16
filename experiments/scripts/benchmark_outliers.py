@@ -12,8 +12,10 @@ import time
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from tsi.baselines import run_baseline_measures
-from tsi.tsi import EfficientTSI, RepresentationPair
+from src.baselines import run_baseline_measures
+from src.tsi import EfficientTSI
+from src.qsi import EfficientQSI
+from src.data import RepresentationPair
 
 
 def generate_data(n_points: int, dim: int = 500, seed: int | None = None) -> tuple[np.ndarray, np.ndarray]:
@@ -22,15 +24,6 @@ def generate_data(n_points: int, dim: int = 500, seed: int | None = None) -> tup
     X = rng.random((n_points, dim))
     Y = X.copy()  # Start with identical data
     return X, Y
-
-
-def top_pc_direction(Y: np.ndarray) -> np.ndarray:
-    """Compute top principal component direction of Y."""
-    Yc = Y - Y.mean(axis=0, keepdims=True)
-    _, _, Vt = np.linalg.svd(Yc, full_matrices=False)
-    v = Vt[0]
-    v /= (np.linalg.norm(v) + 1e-12)
-    return v
 
 
 def random_direction(dim: int, seed: int | None = None) -> np.ndarray:
@@ -46,39 +39,6 @@ def translate_subset(Y: np.ndarray, indices: np.ndarray, direction: np.ndarray, 
     Yp = Y.copy()
     Yp[indices] = Yp[indices] + alpha * direction
     return Yp
-
-
-def create_outliers(X: np.ndarray, Y: np.ndarray, k_outliers: int, sigma: float, seed: int | None = None) -> np.ndarray:
-    """
-    Create outliers by translating k randomly selected points in Y by sigma standard deviations
-    along the top principal component direction.
-    
-    Args:
-        X: Original data
-        Y: Data to modify (should be copy of X)
-        k_outliers: Number of outliers to create
-        sigma: Number of standard deviations to translate points
-        seed: Random seed for reproducibility
-    
-    Returns:
-        Y_prime: Modified Y with outliers
-    """
-    if k_outliers == 0:
-        return Y.copy()
-    
-    rng = np.random.default_rng(seed)
-    
-    # Get top principal component direction
-    direction = top_pc_direction(Y)
-    
-    # Randomly select indices for outliers
-    n_points = len(Y)
-    outlier_indices = rng.choice(n_points, size=min(k_outliers, n_points), replace=False)
-    
-    # Translate outliers by sigma standard deviations
-    Y_prime = translate_subset(Y, outlier_indices, direction, sigma)
-    
-    return Y_prime
 
 
 def create_outliers_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: int, sigma: float, seed: int | None = None) -> np.ndarray:
@@ -114,6 +74,27 @@ def create_outliers_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: i
     return Y_prime
 
 
+def create_outliers_per_outlier_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: int, sigma: float, seed: int | None = None) -> np.ndarray:
+    """
+    Create outliers by translating k randomly selected points in Y, where each selected point
+    is moved along its own independently sampled random direction (k random directions total).
+    """
+    if k_outliers == 0:
+        return Y.copy()
+
+    rng = np.random.default_rng(seed)
+
+    n_points, dim = Y.shape
+    outlier_indices = rng.choice(n_points, size=min(k_outliers, n_points), replace=False)
+
+    Y_prime = Y.copy()
+    for idx in outlier_indices:
+        v = rng.normal(0, 1, dim)
+        v /= (np.linalg.norm(v) + 1e-12)
+        Y_prime[idx] = Y_prime[idx] + sigma * v
+
+    return Y_prime
+
 def benchmark_tsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
     """Benchmark TSI computation time."""
     d_x = lambda x, y: np.linalg.norm(x - y)
@@ -126,19 +107,36 @@ def benchmark_tsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
     return score, end_time - start_time
 
 
+def benchmark_qsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
+    """Benchmark QSI computation time."""
+    d_x = lambda x, y: np.linalg.norm(x - y)
+    d_y = lambda x, y: np.linalg.norm(x - y)
+    representations = RepresentationPair(X, Y, d_x, d_y)
+    efficient_qsi = EfficientQSI(euclidean=True)
+    start_time = time.time()
+    score = efficient_qsi(representations)
+    end_time = time.time()
+    return score, end_time - start_time
+
+
 def benchmark_baselines(X: np.ndarray, Y: np.ndarray) -> dict:
     """Benchmark baseline measures computation time."""
     return run_baseline_measures(X, Y, time_monitor=True)
 
 
-def run_sigma_experiment(args, direction_type='pc'):
-    """Run experiment varying sigma (standard deviations) with fixed N using specified direction type."""
-    direction_name = "PC Direction" if direction_type == 'pc' else "Random Direction"
-    experiment_num = "1" if direction_type == 'pc' else "2"
+def run_sigma_experiment(args):
+    """Run experiment varying sigma (standard deviations) with fixed N using random direction."""
+    print(f"=== EXPERIMENT: Varying Sigma with Random Direction (fixed N={args.fixed_n}, k={args.k_outliers}) ===")
     
-    print(f"=== EXPERIMENT {experiment_num}: Varying Sigma with {direction_name} (fixed N={args.fixed_n}, k={args.k_outliers}) ===")
-    
-    sigma_values = list(range(args.sigma_min, args.sigma_max + 1, args.sigma_step))
+    # Build multiplicative sigma schedule: 0, 1, factor, factor^2, ... <= sigma_max
+    sigma_values = [0]
+    current_sigma = 1
+    while current_sigma <= args.sigma_max:
+        sigma_values.append(int(current_sigma))
+        next_sigma = int(current_sigma * args.sigma_step)
+        if next_sigma <= current_sigma:
+            break
+        current_sigma = next_sigma
     fixed_n = args.fixed_n
     
     print(f"Sigma values: {sigma_values}")
@@ -146,7 +144,7 @@ def run_sigma_experiment(args, direction_type='pc'):
     print(f"Number of outliers (k): {args.k_outliers}")
     print(f"Dimensionality: {args.dim}")
     print(f"Runs per sigma: {args.runs}")
-    print(f"Outlier direction: {direction_name}")
+    print(f"Outlier direction: Random Direction")
     print()
     
     results = []
@@ -161,16 +159,16 @@ def run_sigma_experiment(args, direction_type='pc'):
             run_seed = args.seed + run_idx + sigma * 1000 if args.seed is not None else None
             X, Y = generate_data(fixed_n, args.dim, run_seed)
             
-            # Create outliers based on direction type
+            # Create outliers in random direction according to selected mode
             outlier_seed = run_seed + 10000 if run_seed is not None else None
-            if direction_type == 'pc':
-                Y_prime = create_outliers(X, Y, args.k_outliers, sigma, outlier_seed)
-                experiment_name = 'varying_sigma_pc'
-                case_name = 'outliers_pc_direction'
-            else:  # direction_type == 'random'
+            if args.outlier_direction_mode == 'single':
                 Y_prime = create_outliers_random_direction(X, Y, args.k_outliers, sigma, outlier_seed)
-                experiment_name = 'varying_sigma_random'
-                case_name = 'outliers_random_direction'
+                mode_suffix = 'single'
+            else:  # 'per_outlier'
+                Y_prime = create_outliers_per_outlier_random_direction(X, Y, args.k_outliers, sigma, outlier_seed)
+                mode_suffix = 'per_outlier'
+            experiment_name = 'varying_sigma_random'
+            case_name = f'outliers_random_direction_{mode_suffix}'
             
             row = {
                 'experiment': experiment_name,
@@ -180,7 +178,8 @@ def run_sigma_experiment(args, direction_type='pc'):
                 'sigma': sigma,
                 'run': run_idx + 1,
                 'seed': run_seed,
-                'case': case_name
+                'case': case_name,
+                'outlier_direction_mode': args.outlier_direction_mode
             }
             
             # Run TSI
@@ -194,6 +193,17 @@ def run_sigma_experiment(args, direction_type='pc'):
                 row['TSI_score'] = np.nan
                 row['TSI_time'] = np.nan
             
+            # Run QSI
+            try:
+                qsi_score, qsi_time = benchmark_qsi(X, Y_prime)
+                row['QSI_score'] = qsi_score
+                row['QSI_time'] = qsi_time
+                print(f"    QSI: score={qsi_score:.6f}, time={qsi_time:.4f}s")
+            except Exception as e:
+                print(f"    QSI failed: {e}")
+                row['QSI_score'] = np.nan
+                row['QSI_time'] = np.nan
+
             # Run baselines
             try:
                 baseline_results = benchmark_baselines(X, Y_prime)
@@ -219,43 +229,35 @@ def run_sigma_experiment(args, direction_type='pc'):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Outlier impact benchmark: two experiments - varying sigma with PC direction and varying sigma with random direction'
+        description='Outlier impact benchmark: varying sigma with random direction only'
     )
     
-    # Dataset parameters for both experiments (both vary sigma with fixed N)
+    # Dataset parameters (vary sigma with fixed N)
     parser.add_argument('--sigma-min', type=int, default=0, help='Minimum sigma (std deviations) for varying sigma experiments')
-    parser.add_argument('--sigma-max', type=int, default=100, help='Maximum sigma (std deviations) for varying sigma experiments')
-    parser.add_argument('--sigma-step', type=int, default=5, help='Step size for sigma in varying sigma experiments')
-    parser.add_argument('--fixed-n', type=int, default=2000, help='Fixed number of points for both experiments')
+    parser.add_argument('--sigma-max', type=int, default=128, help='Maximum sigma (std deviations) for varying sigma experiments')
+    parser.add_argument('--sigma-step', type=int, default=2, help='Multiplicative factor for sigma after initial 0 and 1 (e.g., 2 gives 0,1,2,4,8,...)')
+    parser.add_argument('--fixed-n', type=int, default=1000, help='Fixed number of points for both experiments')
     
     # Outlier parameters
     parser.add_argument('--k-outliers', type=int, default=20, help='Number of outliers to create')
-    parser.add_argument('--dim', type=int, default=500, help='Dimensionality of the data')
+    parser.add_argument('--dim', type=int, default=50, help='Dimensionality of the data')
+    parser.add_argument('--outlier-direction-mode', choices=['single', 'per_outlier'], default='per_outlier',
+                        help='Outlier translation mode: single random direction for all outliers, or per_outlier random directions')
     
     # General parameters
     parser.add_argument('--seed', type=int, default=0, help='RNG seed')
-    parser.add_argument('--runs', type=int, default=5, help='Number of runs per configuration (for averaging)')
-    parser.add_argument('--experiment', choices=['pc', 'random', 'both'], default='both', 
-                       help='Which experiment to run: pc (PC direction), random (random direction), or both')
+    parser.add_argument('--runs', type=int, default=20, help='Number of runs per configuration (for averaging)')
 
     args = parser.parse_args()
 
     print(f"Outlier Impact Benchmark:")
     print(f"RNG seed: {args.seed}")
     print(f"Runs per configuration: {args.runs}")
-    print(f"Running experiment(s): {args.experiment}")
+    print(f"Running experiment: random direction only")
+    print(f"Outlier direction mode: {args.outlier_direction_mode}")
     print()
 
-    all_results = []
-
-    # Run experiments based on selection
-    if args.experiment in ['pc', 'both']:
-        pc_results = run_sigma_experiment(args, direction_type='pc')
-        all_results.extend(pc_results)
-
-    if args.experiment in ['random', 'both']:
-        random_results = run_sigma_experiment(args, direction_type='random')
-        all_results.extend(random_results)
+    all_results = run_sigma_experiment(args)
 
     # Create DataFrame and save results
     df = pd.DataFrame(all_results)
@@ -264,12 +266,7 @@ def main():
     results_dir = Path(__file__).parent.parent / 'results/benchmark_outliers'
     results_dir.mkdir(parents=True, exist_ok=True)
     
-    if args.experiment == 'both':
-        filename = f"outliers_benchmark_both_directions_k{args.k_outliers}_runs{args.runs}_seed{args.seed}.csv"
-    elif args.experiment == 'pc':
-        filename = f"outliers_benchmark_pc_direction_sigma{args.sigma_min}-{args.sigma_max}_n{args.fixed_n}_k{args.k_outliers}_runs{args.runs}_seed{args.seed}.csv"
-    else:  # experiment == 'random'
-        filename = f"outliers_benchmark_random_direction_sigma{args.sigma_min}-{args.sigma_max}_n{args.fixed_n}_k{args.k_outliers}_runs{args.runs}_seed{args.seed}.csv"
+    filename = f"outliers_benchmark_random_direction_{args.outlier_direction_mode}_sigma{args.sigma_min}-{args.sigma_max}_n{args.fixed_n}_k{args.k_outliers}_runs{args.runs}_seed{args.seed}.csv"
     
     filepath = results_dir / filename
     df.to_csv(filepath, index=False)
@@ -280,39 +277,21 @@ def main():
     
     score_columns = [col for col in df.columns if col.endswith('_score')]
     
-    if 'varying_sigma_pc' in df['experiment'].values:
-        print(f"\nPC DIRECTION EXPERIMENT (N={args.fixed_n}, k={args.k_outliers}):")
-        pc_data = df[df['experiment'] == 'varying_sigma_pc']
-        pc_summary = pc_data.groupby('sigma')[score_columns].mean().reset_index()
-        print("Average scores across runs:")
-        print(pc_summary.to_string(index=False, float_format='%.6f'))
-        
-        print("\nTiming summary for PC direction:")
-        time_columns = [col for col in df.columns if col.endswith('_time')]
-        pc_time_summary = pc_data.groupby('sigma')[time_columns].mean().reset_index()
-        print(pc_time_summary.to_string(index=False, float_format='%.4f'))
+    print(f"\nRANDOM DIRECTION EXPERIMENT (N={args.fixed_n}, k={args.k_outliers}):")
+    random_data = df[df['experiment'] == 'varying_sigma_random']
+    random_summary = random_data.groupby('sigma')[score_columns].mean().reset_index()
+    print("Average scores across runs:")
+    print(random_summary.to_string(index=False, float_format='%.6f'))
     
-    if 'varying_sigma_random' in df['experiment'].values:
-        print(f"\nRANDOM DIRECTION EXPERIMENT (N={args.fixed_n}, k={args.k_outliers}):")
-        random_data = df[df['experiment'] == 'varying_sigma_random']
-        random_summary = random_data.groupby('sigma')[score_columns].mean().reset_index()
-        print("Average scores across runs:")
-        print(random_summary.to_string(index=False, float_format='%.6f'))
-        
-        print("\nTiming summary for random direction:")
-        time_columns = [col for col in df.columns if col.endswith('_time')]
-        random_time_summary = random_data.groupby('sigma')[time_columns].mean().reset_index()
-        print(random_time_summary.to_string(index=False, float_format='%.4f'))
+    print("\nTiming summary for random direction:")
+    time_columns = [col for col in df.columns if col.endswith('_time')]
+    random_time_summary = random_data.groupby('sigma')[time_columns].mean().reset_index()
+    print(random_time_summary.to_string(index=False, float_format='%.4f'))
     
     print(f"\nTotal measurements: {len(all_results)}")
-    if args.experiment == 'both':
-        pc_measurements = len([r for r in all_results if r['experiment'] == 'varying_sigma_pc'])
-        random_measurements = len([r for r in all_results if r['experiment'] == 'varying_sigma_random'])
-        print(f"  PC direction experiment: {pc_measurements} measurements")
-        print(f"  Random direction experiment: {random_measurements} measurements")
     
-    baseline_count = len([col for col in score_columns if not col.startswith('TSI')])
-    print(f"Measures tested: TSI + {baseline_count} baselines")
+    baseline_count = len([col for col in score_columns if not col.startswith('TSI') and not col.startswith('QSI')])
+    print(f"Measures tested: TSI + QSI + {baseline_count} baselines")
 
 
 if __name__ == "__main__":

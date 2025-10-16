@@ -8,15 +8,7 @@ BASELINE_MEASURES = {
     "MutualNN": "measure/platonic/mutual_knn-topk={topk}",
     "SVCCA": "measure/svcca/cca-score",
     "PWCCA": "measure/svcca/pwcca-score",
-    "Kendall-RDM": "measure/rsatoolbox/rsa-rdm=squared_euclidean-compare=tau_a",
-    "OrthogonalProcrustes": "measure/sim_metric/procrustes-score",
 }
-
-def normalize_measure_name(name: str, value: float):
-    if name == "Kendall-RDM":
-        return (value + 1) / 2
-    else:
-        return value
 
 class BaselineMeasure:
     def __init__(self, name: str):
@@ -35,9 +27,15 @@ class BaselineMeasure:
 def run_baseline_measures(X: np.ndarray, Y: np.ndarray, time_monitor: bool = False):
     results = {}
     for measure_name, measure_path in BASELINE_MEASURES.items():
-        if time_monitor:
-            score, time_taken = BaselineMeasure(measure_path)(X, Y, time_monitor)
-            results[measure_name] = (normalize_measure_name(measure_name, score), time_taken)
-        else:
-            results[measure_name] = normalize_measure_name(measure_name, BaselineMeasure(measure_path)(X, Y))
+        try:
+            if time_monitor:
+                score, time_taken = BaselineMeasure(measure_path)(X, Y, time_monitor)
+                results[measure_name] = (score, time_taken)
+            else:
+                results[measure_name] = BaselineMeasure(measure_path)(X, Y)
+        except Exception:
+            if time_monitor:
+                results[measure_name] = (None, None)
+            else:
+                results[measure_name] = None
     return results
