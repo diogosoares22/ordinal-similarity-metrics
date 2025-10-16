@@ -4,7 +4,7 @@
 # Usage: ./run_all_experiments.sh [--clean]
 # 
 # Options:
-#   --clean    Remove all files in tsi/experiments/results before running experiments
+#   --clean    Remove all files in experiments/results before running experiments
 
 set -e  # Exit on any error
 
@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [--clean]"
             echo ""
             echo "Options:"
-            echo "  --clean    Remove all files in tsi/experiments/results before running experiments"
+            echo "  --clean    Remove all files in experiments/results before running experiments"
             echo "  -h, --help Show this help message"
             exit 0
             ;;
@@ -56,43 +56,43 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check if we're in the right directory
-if [[ ! -d "tsi/experiments" ]]; then
-    print_error "tsi/experiments directory not found. Please run this script from the project root."
+# Check if we're in the right directory (new structure)
+if [[ ! -d "experiments" || ! -d "experiments/scripts" || ! -d "experiments/plot-rendering-code" ]]; then
+    print_error "experiments directory structure not found. Please run this script from the project root."
     exit 1
 fi
 
 # Initialize conda and activate environment
 eval "$(conda shell.bash hook)"
-conda activate triplet-similarity-index
+conda activate ordinal-similarity-metrics
 print_success "Conda environment activated"
 
-# Clean results directory if requested
+# Clean results directory if requested (new structure)
 if [[ "$CLEAN_RESULTS" == true ]]; then
     print_warning "Cleaning results directory..."
-    if [[ -d "tsi/experiments/results" ]]; then
-        rm -rf tsi/experiments/results/*
+    if [[ -d "experiments/results" ]]; then
+        rm -rf experiments/results/*
         print_success "Results directory cleaned"
     else
         print_warning "Results directory does not exist, creating it..."
-        mkdir -p tsi/experiments/results
+        mkdir -p experiments/results
     fi
 fi
 
 # Ensure results directory exists
-mkdir -p tsi/experiments/results
+mkdir -p experiments/results
 
 print_status "Starting experiment pipeline..."
 
-# Run all experiment scripts
+# Run all experiment scripts (new structure)
 print_status "Running experiment scripts..."
-SCRIPTS_DIR="tsi/experiments/scripts"
+SCRIPTS_DIR="experiments/scripts"
 SCRIPT_COUNT=0
 FAILED_SCRIPTS=()
 
-# Run all plot rendering scripts
+# Run all plot rendering scripts (new structure)
 print_status "Running plot rendering scripts..."
-PLOT_DIR="tsi/experiments/plot-rendering-code"
+PLOT_DIR="experiments/plot-rendering-code"
 PLOT_COUNT=0
 FAILED_PLOTS=()
 
@@ -153,5 +153,5 @@ if [[ ${#FAILED_SCRIPTS[@]} -gt 0 || ${#FAILED_PLOTS[@]} -gt 0 ]]; then
     exit 1
 else
     print_success "All scripts completed successfully!"
-    print_status "Results and plots are available in tsi/experiments/results/"
+    print_status "Results are available in experiments/results/ and plots in plots/"
 fi
