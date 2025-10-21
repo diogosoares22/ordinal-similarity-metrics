@@ -107,3 +107,32 @@ class ApproxTSI:
                 aligned_triplets[idx] = tsi_predicate(i, j, k, X, Y, d_x, d_y)
         
         return aligned_triplets.sum() / comparisons
+
+
+class EfficientApproxTSI:
+    """
+    The EfficientApproxTSI class is used to efficiently compute the approximate TSI between two representations but without mathematical guarantees.
+    """
+    def __init__(self, euclidean: bool = False, memory_efficient: bool = True, n_threads: int = 8, batch_size: int = 100, no_batches: int = 10, seed: int = 42):
+        self.name = "EfficientApproxTSI"
+        self.n_threads = n_threads
+        self.batch_size = batch_size
+        self.no_batches = no_batches
+        self.seed = seed
+        self.tsi_helper = EfficientTSI(euclidean=euclidean, memory_efficient=memory_efficient)
+
+    def __call__(self, representations: RepresentationPair):
+        X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
+        n = len(X)
+        if self.batch_size >= n:
+            return self.tsi_helper(representations)
+        
+        np.random.seed(self.seed)
+        batches = [np.random.choice(n, self.batch_size, replace=False) for _ in range(self.no_batches)]
+        results = []
+        
+        for batch in batches:
+            batch_representations = RepresentationPair(X=X[batch], Y=Y[batch], d_x=d_x, d_y=d_y)
+            results.append(self.tsi_helper(batch_representations))
+        
+        return np.mean(results)

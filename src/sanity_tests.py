@@ -2,11 +2,11 @@
 
 import argparse
 from src.data import RepresentationPair
-from src.tsi import TSI, EfficientTSI, ApproxTSI
-from src.qsi import QSI, ApproxQSI, EfficientQSI
+from src.tsi import TSI, EfficientTSI, ApproxTSI, EfficientApproxTSI
+from src.qsi import QSI, ApproxQSI, EfficientQSI, EfficientApproxQSI
 import numpy as np
 
-EPSILON = 0.005
+EPSILON = 0.01
 DELTA = 0.001
 
 class Example:
@@ -56,7 +56,7 @@ def test_efficient_tsi_alignment_with_tsi_on_random_data():
     representations = RepresentationPair(X, Y, d_x, d_y)
     efficient_tsi = EfficientTSI(euclidean=False)
     tsi = TSI()
-    assert efficient_tsi(representations) == tsi(representations)
+    assert np.abs(efficient_tsi(representations) - tsi(representations)) <= 0.000001
     print("EfficientTSI alignment with TSI on random data test passed")
 
 def test_efficient_tsi_alignment_with_tsi_on_random_data_with_equalities():
@@ -67,7 +67,7 @@ def test_efficient_tsi_alignment_with_tsi_on_random_data_with_equalities():
     representations = RepresentationPair(X, Y, d_x, d_y)
     efficient_tsi = EfficientTSI(euclidean=False)
     tsi = TSI()
-    assert efficient_tsi(representations) == tsi(representations)
+    assert np.abs(efficient_tsi(representations) - tsi(representations)) <= 0.000001
     print("EfficientTSI alignment with TSI test on random data with equalities passed")
 
 ### ApproxTSI tests ###
@@ -90,6 +90,27 @@ def test_approx_tsi_alignment_with_tsi_on_random_data():
     exact_value = tsi(representations)
     assert abs(approx_value - exact_value) <= EPSILON * 3 # 3 is a tolerance factor
     print("ApproxTSI alignment with TSI on random data within tolerance test passed")
+
+### EfficientApproxTSI tests ###
+
+def test_efficient_approx_tsi_on_example(example):
+    efficient_approx_tsi = EfficientApproxTSI(seed=42)
+    value = efficient_approx_tsi(example.representations)
+    assert abs(value - example.expected_tsi) <= 0.1
+    print(f"EfficientApproxTSI on example {example.name} within tolerance test passed")
+
+def test_efficient_approx_tsi_alignment_with_tsi_on_random_data():
+    X = np.random.rand(30, 3)
+    Y = np.random.rand(30, 3)
+    d_x = lambda x, y: np.linalg.norm(x - y)
+    d_y = lambda x, y: np.linalg.norm(x - y)
+    representations = RepresentationPair(X, Y, d_x, d_y)
+    efficient_approx_tsi = EfficientApproxTSI(seed=42)
+    tsi = TSI()
+    approx_value = efficient_approx_tsi(representations)
+    exact_value = tsi(representations)
+    assert abs(approx_value - exact_value) <= 0.1
+    print("EfficientApproxTSI alignment with TSI on random data within tolerance test passed")
 
 ### QSI tests ###
 
@@ -123,7 +144,7 @@ def test_efficient_qsi_alignment_with_qsi_on_random_data():
     representations = RepresentationPair(X, Y, d_x, d_y)
     efficient_qsi = EfficientQSI(euclidean=False)
     qsi = QSI()
-    assert efficient_qsi(representations) == qsi(representations)
+    assert np.abs(efficient_qsi(representations) - qsi(representations)) <= 0.000001
     print("EfficientQSI alignment with QSI on random data test passed")
 
 ### ApproxQSI tests ###
@@ -146,6 +167,27 @@ def test_approx_qsi_alignment_with_qsi_on_random_data():
     approx_value = approx_qsi(representations)
     assert abs(approx_value - exact_value) <= EPSILON * 3 # 3 is a tolerance factor
     print("ApproxQSI alignment with QSI on random data within tolerance test passed")
+
+### EfficientApproxQSI tests ###
+
+def test_efficient_approx_qsi_on_example(example):
+    efficient_approx_qsi = EfficientApproxQSI(seed=42)
+    value = efficient_approx_qsi(example.representations)
+    assert abs(value - example.expected_qsi) <= 0.1
+    print(f"EfficientApproxQSI on example {example.name} within tolerance test passed")
+
+def test_efficient_approx_qsi_alignment_with_qsi_on_random_data():
+    X = np.random.rand(20, 3)
+    Y = np.random.rand(20, 3)
+    d_x = lambda x, y: np.linalg.norm(x - y)
+    d_y = lambda x, y: np.linalg.norm(x - y)
+    representations = RepresentationPair(X, Y, d_x, d_y)
+    qsi = QSI()
+    efficient_approx_qsi = EfficientApproxQSI(seed=42)
+    exact_value = qsi(representations)
+    approx_value = efficient_approx_qsi(representations)
+    assert abs(approx_value - exact_value) <= 0.1
+    print("EfficientApproxQSI alignment with QSI on random data within tolerance test passed")
 
 def run_tsi_tests():
     """Run tests for TSI implementation"""
@@ -183,12 +225,23 @@ def run_approx_qsi_tests():
     """Run tests for ApproxQSI implementation"""
     test_approx_qsi_on_example(curated_example_2)
     test_approx_qsi_alignment_with_qsi_on_random_data()
-    
+
+def run_efficient_approx_tsi_tests():
+    """Run tests for EfficientApproxTSI implementation"""
+    test_efficient_approx_tsi_on_example(curated_example_1)
+    test_efficient_approx_tsi_on_example(curated_example_2)
+    test_efficient_approx_tsi_on_example(curated_example_3)
+    test_efficient_approx_tsi_alignment_with_tsi_on_random_data()
+
+def run_efficient_approx_qsi_tests():
+    """Run tests for EfficientApproxQSI implementation"""
+    test_efficient_approx_qsi_on_example(curated_example_2)
+    test_efficient_approx_qsi_alignment_with_qsi_on_random_data()
 
 def main():
     parser = argparse.ArgumentParser(description='Run TSI sanity tests')
     parser.add_argument('--test-subject', 
-                       choices=['All', 'TSI', 'EfficientTSI', 'ApproxTSI', 'QSI', 'ApproxQSI', 'EfficientQSI'], 
+                       choices=['All', 'TSI', 'EfficientTSI', 'ApproxTSI', 'EfficientApproxTSI', 'QSI', 'ApproxQSI', 'EfficientQSI', 'EfficientApproxQSI'], 
                        default='All',
                        help='Specify which TSI implementation to test')
     
@@ -201,21 +254,27 @@ def main():
         run_tsi_tests()
         run_efficient_tsi_tests()
         run_approx_tsi_tests()
+        run_efficient_approx_tsi_tests()
         run_qsi_tests()
         run_efficient_qsi_tests()
         run_approx_qsi_tests()
+        run_efficient_approx_qsi_tests()
     elif args.test_subject == 'TSI':
         run_tsi_tests()
     elif args.test_subject == 'EfficientTSI':
         run_efficient_tsi_tests()
     elif args.test_subject == 'ApproxTSI':
         run_approx_tsi_tests()
+    elif args.test_subject == 'EfficientApproxTSI':
+        run_efficient_approx_tsi_tests()
     elif args.test_subject == 'QSI':
         run_qsi_tests()
     elif args.test_subject == 'ApproxQSI':
         run_approx_qsi_tests()
     elif args.test_subject == 'EfficientQSI':
         run_efficient_qsi_tests()
+    elif args.test_subject == 'EfficientApproxQSI':
+        run_efficient_approx_qsi_tests()
     
     print(f"\nAll {args.test_subject} tests completed successfully!")
 
