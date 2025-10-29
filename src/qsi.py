@@ -72,8 +72,11 @@ class ApproxQSI:
     The ApproxQSI class is used to compute the approximate QSI between two representations 
     with a given error probability delta and a maximum additive error epsilon.
     """
-    def __init__(self, epsilon: float = 0.005, delta: float = 0.001, n_threads: int = 8, seed: int = 42):
+    def __init__(self, n_samples: int | None = None, epsilon: float | None = None, delta: float | None = None, n_threads: int = 8, seed: int = 42):
+        if n_samples is None and (epsilon is None and delta is None):
+            raise ValueError("Either n_samples or (epsilon, delta) must be provided")
         self.name = "ApproxQSI"
+        self.n_samples = n_samples
         self.epsilon = epsilon
         self.delta = delta
         self.n_threads = n_threads
@@ -82,9 +85,12 @@ class ApproxQSI:
     def __call__(self, representations: RepresentationPair):
         X, Y, d_x, d_y = representations.X, representations.Y, representations.d_x, representations.d_y
         n = len(X)
-        epsilon_term = 1/(2*(self.epsilon**2))
-        delta_term = np.log(2/self.delta)
-        comparisons = int(np.ceil(epsilon_term * delta_term))
+        if self.n_samples is not None:
+            comparisons = self.n_samples
+        else:
+            epsilon_term = 1/(2*(self.epsilon**2))
+            delta_term = np.log(2/self.delta)
+            comparisons = int(np.ceil(epsilon_term * delta_term))
         
         np.random.seed(self.seed)
         samples = []
