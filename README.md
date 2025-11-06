@@ -3,4 +3,6 @@ Repository contains the code for a ordinal similarity metrics called Triplet Sim
 
 conda create -n ordinal-similarity-metrics python=3.11
 
+conda activate ordinal-similarity-metrics
+
 pip install -e .
