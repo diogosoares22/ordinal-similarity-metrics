@@ -128,7 +128,7 @@ class ViT(nn.Module):
             nn.Linear(dim, num_classes)
         )
 
-    def forward(self, img):
+    def forward(self, img, return_latent=False):
         x = self.to_patch_embedding(img)
         b, n, _ = x.shape
 
@@ -142,4 +142,6 @@ class ViT(nn.Module):
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
 
         x = self.to_latent(x)
+        if return_latent:
+            return self.mlp_head(x), x
         return self.mlp_head(x)

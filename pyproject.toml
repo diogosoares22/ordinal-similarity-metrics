@@ -21,6 +21,8 @@ dependencies = [
     "scikit-learn==1.6.1",
     "pandas",
     "cython",
+    "torchvision",
+    "wandb",
 
     # Plotting & visualization
     "matplotlib",
