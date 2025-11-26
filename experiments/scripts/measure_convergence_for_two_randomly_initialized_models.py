@@ -138,7 +138,7 @@ def parse_args():
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--n_epochs', type=int, default='200')
     parser.add_argument('--patch', default='4', type=int, help="patch for ViT")
-    parser.add_argument('--dimhead', default="512", type=int)
+    parser.add_argument('--dimhead', default="768", type=int)
     parser.add_argument('--dataset', default='cifar10', type=str, help='dataset to use (cifar10 or cifar100)')
     parser.add_argument('--similarity-bs', default=1000, type=int, help='batch size for similarity computation')
     parser.add_argument('--no-similarity-bs', default=10, type=int, help='number of batches for similarity computation')
@@ -305,10 +305,10 @@ def main():
 
     # Prepare dataset
     trainset = dataset_class(root='./data', train=True, download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=8)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
 
     testset = dataset_class(root='./data', train=False, download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=0)
 
     # Set up class names based on the dataset
     if args.dataset == 'cifar10':
@@ -365,10 +365,6 @@ def main():
     # use cosine scheduling
     scheduler0 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer0, args.n_epochs)
     scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer1, args.n_epochs)
-
-    if usewandb:
-        wandb.watch(net0)
-        wandb.watch(net1)
 
     # Epoch -1: Test before training (baseline measurement)
     print('\nEpoch: -1 (before training)')
