@@ -140,7 +140,7 @@ def parse_args():
     parser.add_argument('--similarity-bs', default=1000, type=int, help='batch size for similarity computation')
     parser.add_argument('--no-similarity-bs', default=10, type=int, help='number of batches for similarity computation')
     parser.add_argument('--init-gain', default=10.0, type=float, help='gain for weight initialization')
-    parser.add_argument('--min-lr', default=1e-6, type=float, help='minimum learning rate for exponential decay')
+    parser.add_argument('--min-lr', default=1e-8, type=float, help='minimum learning rate for exponential decay')
     return parser.parse_args()
 
 

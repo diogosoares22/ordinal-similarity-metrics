@@ -139,10 +139,10 @@ def ViT_CIFAR10():
         image_size=(32, 32),
         patch_size=4,
         num_classes=10,
-        dim=768,
-        depth=12,
-        heads=12,
-        mlp_dim=4*768,
+        dim=512,
+        depth=6,
+        heads=8,
+        mlp_dim=512,
         dropout=0.1,
         emb_dropout=0.1
     )
@@ -152,10 +152,10 @@ def ViT_CIFAR100():
         image_size=(32, 32),
         patch_size=4,
         num_classes=100,
-        dim=768,
-        depth=12,
-        heads=12,
-        mlp_dim=4*768,
+        dim=512,
+        depth=6,
+        heads=8,
+        mlp_dim=512,
         dropout=0.1,
         emb_dropout=0.1
     )
