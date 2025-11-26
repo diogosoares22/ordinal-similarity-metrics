@@ -130,7 +130,7 @@ def progress_bar(current, total, msg=None):
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10/100 Training')
-    parser.add_argument('--lr', default=1e-3, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
+    parser.add_argument('--lr', default=1e-2, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
     parser.add_argument('--net', default='vit')
     parser.add_argument('--bs', default=512)
@@ -142,7 +142,8 @@ def parse_args():
     parser.add_argument('--dataset', default='cifar10', type=str, help='dataset to use (cifar10 or cifar100)')
     parser.add_argument('--similarity-bs', default=1000, type=int, help='batch size for similarity computation')
     parser.add_argument('--no-similarity-bs', default=10, type=int, help='number of batches for similarity computation')
-    parser.add_argument('--init-gain', default=1.0, type=float, help='gain for weight initialization')
+    parser.add_argument('--init-gain', default=10.0, type=float, help='gain for weight initialization')
+    parser.add_argument('--min-lr', default=1e-6, type=float, help='minimum learning rate for exponential decay')
     return parser.parse_args()
 
 
@@ -258,7 +259,7 @@ def main():
     usewandb = ~args.nowandb
     if usewandb:
         import wandb
-        watermark = "{}_{}".format(args.net, args.dataset)
+        watermark = "{}_{}_gain{}_lr{}_epochs{}".format(args.net, args.dataset, args.init_gain, args.lr, args.n_epochs)
         wandb.init(project="ordinal-similarity-metrics",
                 name=watermark)
         wandb.config.update(args)
@@ -305,10 +306,10 @@ def main():
 
     # Prepare dataset
     trainset = dataset_class(root='./data', train=True, download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=0)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=8)
 
     testset = dataset_class(root='./data', train=False, download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=0)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8)
 
     # Set up class names based on the dataset
     if args.dataset == 'cifar10':
@@ -362,9 +363,11 @@ def main():
     optimizer0 = optim.Adam(net0.parameters(), lr=args.lr)  
     optimizer1 = optim.Adam(net1.parameters(), lr=args.lr)  
         
-    # use cosine scheduling
-    scheduler0 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer0, args.n_epochs)
-    scheduler1 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer1, args.n_epochs)
+    # Exponential decay scheduler: lr * gamma^epoch, where gamma is computed to reach min_lr at the end
+    # lr * gamma^n_epochs = min_lr  =>  gamma = (min_lr / lr)^(1/n_epochs)
+    gamma = (args.min_lr / args.lr) ** (1.0 / args.n_epochs)
+    scheduler0 = torch.optim.lr_scheduler.ExponentialLR(optimizer0, gamma=gamma)
+    scheduler1 = torch.optim.lr_scheduler.ExponentialLR(optimizer1, gamma=gamma)
 
     # Epoch -1: Test before training (baseline measurement)
     print('\nEpoch: -1 (before training)')
@@ -404,8 +407,8 @@ def main():
             batch_size=args.similarity_bs, no_batches=args.no_similarity_bs
         )
         
-        scheduler0.step(epoch-1) # step cosine scheduling
-        scheduler1.step(epoch-1) # step cosine scheduling
+        scheduler0.step()  # step exponential scheduling
+        scheduler1.step()  # step exponential scheduling
         
         # Log training..
         log_dict = {
