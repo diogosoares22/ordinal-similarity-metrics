@@ -130,7 +130,7 @@ def progress_bar(current, total, msg=None):
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10/100 Training')
-    parser.add_argument('--lr', default=1e-2, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
+    parser.add_argument('--lr', default=2e-3, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
     parser.add_argument('--net', default='vit')
     parser.add_argument('--bs', default=512)
