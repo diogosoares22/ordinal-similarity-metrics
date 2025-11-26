@@ -130,7 +130,7 @@ def progress_bar(current, total, msg=None):
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10/100 Training')
-    parser.add_argument('--lr', default=1e-4, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
+    parser.add_argument('--lr', default=1e-3, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
     parser.add_argument('--net', default='vit')
     parser.add_argument('--bs', default='512')
@@ -142,6 +142,7 @@ def parse_args():
     parser.add_argument('--dataset', default='cifar10', type=str, help='dataset to use (cifar10 or cifar100)')
     parser.add_argument('--similarity-bs', default=1000, type=int, help='batch size for similarity computation')
     parser.add_argument('--no-similarity-bs', default=10, type=int, help='number of batches for similarity computation')
+    parser.add_argument('--init-gain', default=1.0, type=float, help='gain for weight initialization')
     return parser.parse_args()
 
 
@@ -265,7 +266,7 @@ def main():
     # Setup CSV logging
     results_dir = os.path.join("experiments", "results", "measure_convergence_for_two_randomly_initialized_models")
     os.makedirs(results_dir, exist_ok=True)
-    csv_filename = f"{args.net}_{args.dataset}_seed{args.seed}_epochs{args.n_epochs}.csv"
+    csv_filename = f"{args.net}_{args.dataset}_seed{args.seed}_epochs{args.n_epochs}_gain{args.init_gain}.csv"
     csv_path = os.path.join(results_dir, csv_filename)
     all_logs = []  # Collect all log dictionaries
 
@@ -352,9 +353,9 @@ def main():
         net1 = ViT(**params).to(device)
 
     seed_everything(args.seed)
-    initialize_weights(net0)
+    initialize_weights(net0, gain=args.init_gain)
     seed_everything(args.seed + 1)
-    initialize_weights(net1)
+    initialize_weights(net1, gain=args.init_gain)
 
     # Loss is CE
     criterion = nn.CrossEntropyLoss()
