@@ -96,22 +96,11 @@ class ResNet(nn.Module):
             return self.linear(out), out
         return self.linear(out)
 
+def ResNet50_CIFAR10():
+    return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=10)
 
-def ResNet18():
-    return ResNet(BasicBlock, [2, 2, 2, 2])
+def ResNet50_CIFAR100():
+    return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=100)
 
-
-def ResNet34():
-    return ResNet(BasicBlock, [3, 4, 6, 3])
-
-
-def ResNet50(num_classes):
-    return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=num_classes)
-
-
-def ResNet101():
-    return ResNet(Bottleneck, [3, 4, 23, 3])
-
-
-def ResNet152():
-    return ResNet(Bottleneck, [3, 8, 36, 3])
+def ResNet50_ImageNet():
+    return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=1000)

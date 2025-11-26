@@ -132,3 +132,43 @@ class ViT(nn.Module):
         if return_latent:
             return self.mlp_head(x), x
         return self.mlp_head(x)
+
+
+def ViT_CIFAR10():
+    return ViT(
+        image_size=(32, 32),
+        patch_size=4,
+        num_classes=10,
+        dim=768,
+        depth=12,
+        heads=12,
+        mlp_dim=4*768,
+        dropout=0.1,
+        emb_dropout=0.1
+    )
+
+def ViT_CIFAR100():
+    return ViT(
+        image_size=(32, 32),
+        patch_size=4,
+        num_classes=100,
+        dim=768,
+        depth=12,
+        heads=12,
+        mlp_dim=4*768,
+        dropout=0.1,
+        emb_dropout=0.1
+    )
+
+def ViT_ImageNet():
+    return ViT(
+        image_size=(224, 224),
+        patch_size=16,
+        num_classes=1000,
+        dim=768,
+        depth=12,
+        heads=12,
+        mlp_dim=4*768,
+        dropout=0.1,
+        emb_dropout=0.1
+    )

@@ -29,9 +29,8 @@ from src.qsi import ApproxQSI
 from src.data import RepresentationPair
 
 from models.initialization import initialize_weights
-from models.vit import ViT
-from models.vit_small import ViT as ViT_Small
-from models.resnet import ResNet50
+from models.vit import ViT_CIFAR10, ViT_CIFAR100
+from models.resnet import ResNet50_CIFAR10, ResNet50_CIFAR100
 
 def seed_everything(seed: int):
     import random, os
@@ -132,14 +131,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10/100 Training')
     parser.add_argument('--lr', default=2e-3, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
-    parser.add_argument('--net', default='vit')
+    parser.add_argument('--net', default='vit', choices=['vit', 'res50'], help='network architecture')
     parser.add_argument('--bs', default=512)
     parser.add_argument('--size', default=32)
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--n_epochs', type=int, default='200')
-    parser.add_argument('--patch', default=4, type=int, help="patch for ViT")
-    parser.add_argument('--dimhead', default=768, type=int)
-    parser.add_argument('--dataset', default='cifar10', type=str, help='dataset to use (cifar10 or cifar100)')
+    parser.add_argument('--dataset', default='cifar10', type=str, choices=['cifar10', 'cifar100'], help='dataset to use')
     parser.add_argument('--similarity-bs', default=1000, type=int, help='batch size for similarity computation')
     parser.add_argument('--no-similarity-bs', default=10, type=int, help='number of batches for similarity computation')
     parser.add_argument('--init-gain', default=10.0, type=float, help='gain for weight initialization')
@@ -318,40 +315,22 @@ def main():
         # CIFAR100 has 100 classes, so we don't list them all here
         classes = None
 
-    # Model factory..
+    # Model factory based on net and dataset
     print('==> Building model..')
-    if args.net=='res50':
-        net0 = ResNet50(num_classes=num_classes).to(device)
-        net1 = ResNet50(num_classes=num_classes).to(device)
-    elif args.net=="vit_small":
-        params = {
-            "image_size": size,
-            "patch_size": args.patch,
-            "num_classes": num_classes,
-            "dim": int(args.dimhead),
-            "depth": 6,
-            "heads": 8,
-            "mlp_dim": 512,
-            "dropout": 0.1,
-            "emb_dropout": 0.1
-        }
-        net0 = ViT_Small(**params).to(device)
-        net1 = ViT_Small(**params).to(device)
-    elif args.net=="vit":
-        # ViT for cifar10/100
-        params = {
-            "image_size": size,
-            "patch_size": args.patch,
-            "num_classes": num_classes,
-            "dim": int(args.dimhead),
-            "depth": 6,
-            "heads": 8,
-            "mlp_dim": 512,
-            "dropout": 0.1,
-            "emb_dropout": 0.1
-        }
-        net0 = ViT(**params).to(device)
-        net1 = ViT(**params).to(device)
+    model_registry = {
+        ('vit', 'cifar10'): ViT_CIFAR10,
+        ('vit', 'cifar100'): ViT_CIFAR100,
+        ('res50', 'cifar10'): ResNet50_CIFAR10,
+        ('res50', 'cifar100'): ResNet50_CIFAR100,
+    }
+    
+    model_key = (args.net, args.dataset)
+    if model_key not in model_registry:
+        raise ValueError(f"Unsupported combination: net={args.net}, dataset={args.dataset}")
+    
+    model_fn = model_registry[model_key]
+    net0 = model_fn().to(device)
+    net1 = model_fn().to(device)
 
     seed_everything(args.seed)
     initialize_weights(net0, gain=args.init_gain)
