@@ -129,7 +129,7 @@ def progress_bar(current, total, msg=None):
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10/100 Training')
-    parser.add_argument('--lr', default=2e-3, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
+    parser.add_argument('--lr', default=1e-4, type=float, help='learning rate') # resnets.. 1e-3, Vit..1e-4
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
     parser.add_argument('--net', default='vit', choices=['vit', 'res50'], help='network architecture')
     parser.add_argument('--bs', default=512)
@@ -139,8 +139,9 @@ def parse_args():
     parser.add_argument('--dataset', default='cifar10', type=str, choices=['cifar10', 'cifar100'], help='dataset to use')
     parser.add_argument('--similarity-bs', default=1000, type=int, help='batch size for similarity computation')
     parser.add_argument('--no-similarity-bs', default=10, type=int, help='number of batches for similarity computation')
-    parser.add_argument('--init-gain', default=10.0, type=float, help='gain for weight initialization')
-    parser.add_argument('--min-lr', default=1e-8, type=float, help='minimum learning rate for exponential decay')
+    parser.add_argument('--custom-initialization', action='store_true', help='use custom initialization')
+    parser.add_argument('--init-gain', default=1, type=float, help='gain for weight initialization')
+    parser.add_argument('--min-lr', default=1e-6, type=float, help='minimum learning rate for exponential decay')
     return parser.parse_args()
 
 
@@ -256,7 +257,10 @@ def main():
     usewandb = ~args.nowandb
     if usewandb:
         import wandb
-        watermark = "{}_{}_gain{}_lr{}_epochs{}".format(args.net, args.dataset, args.init_gain, args.lr, args.n_epochs)
+        if args.custom_initialization:
+            watermark = "{}_{}_custom_initialization_gain{}_lr{}_epochs{}".format(args.net, args.dataset, args.init_gain, args.lr, args.n_epochs)
+        else:   
+            watermark = "{}_{}_reset_parameters_lr{}_epochs{}".format(args.net, args.dataset, args.lr, args.n_epochs)
         wandb.init(project="ordinal-similarity-metrics",
                 name=watermark)
         wandb.config.update(args)
@@ -329,13 +333,17 @@ def main():
         raise ValueError(f"Unsupported combination: net={args.net}, dataset={args.dataset}")
     
     model_fn = model_registry[model_key]
+    seed_everything(args.seed)
     net0 = model_fn().to(device)
+
+    seed_everything(args.seed + 1)
     net1 = model_fn().to(device)
 
-    seed_everything(args.seed)
-    initialize_weights(net0, gain=args.init_gain)
-    seed_everything(args.seed + 1)
-    initialize_weights(net1, gain=args.init_gain)
+    if args.custom_initialization:
+        seed_everything(args.seed)
+        initialize_weights(net0, gain=args.init_gain)
+        seed_everything(args.seed + 1)
+        initialize_weights(net1, gain=args.init_gain)
 
     # Loss is CE
     criterion = nn.CrossEntropyLoss()
