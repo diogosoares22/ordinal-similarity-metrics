@@ -2,9 +2,12 @@
 """
 Benchmark script for measuring the impact of outliers on similarity measures.
 Tests how outliers affect similarity measures by comparing X vs X' where X' has k randomly selected outliers.
-Includes two experiments:
-1. Fixed N, varying standard deviation units (0, 1, 2, ..., 10) with PC direction
-2. Fixed N, varying standard deviation units (0, 1, 2, ..., 10) with random direction
+Supports two data sources:
+1. Synthetic: Random uniform data
+2. CIFAR-10: Real neural network representations from trained model
+
+Experiments:
+- Fixed N, varying standard deviation units (0, 1, 2, ..., max_sigma) with random direction
 """
 
 import argparse
@@ -18,10 +21,44 @@ from src.qsi import EfficientQSI
 from src.data import RepresentationPair
 
 
-def generate_data(n_points: int, dim: int = 500, seed: int | None = None) -> tuple[np.ndarray, np.ndarray]:
-    """Generate random data for benchmarking."""
+# Path to CIFAR-10 representations
+CIFAR10_REPRESENTATIONS_PATH =  'data/cifar-10-final-epoch-val-representations.npy'
+
+
+def load_cifar10_representations() -> np.ndarray:
+    """Load CIFAR-10 final epoch validation representations."""
+    return np.load(CIFAR10_REPRESENTATIONS_PATH)
+
+
+def generate_synthetic_data(n_points: int, dim: int = 500, seed: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Generate random synthetic data for benchmarking."""
     rng = np.random.default_rng(seed)
     X = rng.random((n_points, dim))
+    Y = X.copy()  # Start with identical data
+    return X, Y
+
+
+def generate_cifar10_data(n_points: int | None = None, seed: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Load CIFAR-10 representations and prepare X, Y pair.
+    
+    Args:
+        n_points: Number of points to use. If None, uses all available.
+        seed: Random seed for shuffling/subsampling.
+    
+    Returns:
+        X, Y tuple where Y is a copy of X (identical data)
+    """
+    X_full = load_cifar10_representations()
+    rng = np.random.default_rng(seed)
+    
+    if n_points is not None and n_points < len(X_full):
+        # Randomly subsample
+        indices = rng.choice(len(X_full), size=n_points, replace=False)
+        X = X_full[indices]
+    else:
+        X = X_full.copy()
+    
     Y = X.copy()  # Start with identical data
     return X, Y
 
@@ -95,6 +132,7 @@ def create_outliers_per_outlier_random_direction(X: np.ndarray, Y: np.ndarray, k
 
     return Y_prime
 
+
 def benchmark_tsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
     """Benchmark TSI computation time."""
     d_x = lambda x, y: np.linalg.norm(x - y)
@@ -124,9 +162,29 @@ def benchmark_baselines(X: np.ndarray, Y: np.ndarray) -> dict:
     return run_baseline_measures(X, Y, time_monitor=True)
 
 
-def run_sigma_experiment(args):
-    """Run experiment varying sigma (standard deviations) with fixed N using random direction."""
-    print(f"=== EXPERIMENT: Varying Sigma with Random Direction (fixed N={args.fixed_n}, k={args.k_outliers}) ===")
+def run_sigma_experiment(args, data_source: str):
+    """Run experiment varying sigma (standard deviations) with fixed N using random direction.
+    
+    Args:
+        args: Command line arguments
+        data_source: Either 'synthetic' or 'cifar10'
+    """
+    data_source_display = 'CIFAR-10' if data_source == 'cifar10' else 'Synthetic'
+    
+    # Determine N and dim based on data source
+    if data_source == 'cifar10':
+        # For CIFAR-10, we use all 10k samples with dim=512
+        fixed_n = args.cifar10_n if args.cifar10_n else 10000  # Default to all samples
+        dim = 512  # Fixed dimension for CIFAR-10 representations
+    else:
+        fixed_n = args.fixed_n
+        dim = args.dim
+    
+    # Calculate number of outliers from percentage
+    k_outliers = max(1, int(fixed_n * args.outlier_pct / 100.0))
+    
+    print(f"=== EXPERIMENT: Varying Sigma with Random Direction ({data_source_display}) ===")
+    print(f"  N={fixed_n}, k={k_outliers} ({args.outlier_pct}%), dim={dim}")
     
     # Build multiplicative sigma schedule: 0, 1, factor, factor^2, ... <= sigma_max
     sigma_values = [0]
@@ -137,12 +195,9 @@ def run_sigma_experiment(args):
         if next_sigma <= current_sigma:
             break
         current_sigma = next_sigma
-    fixed_n = args.fixed_n
     
     print(f"Sigma values: {sigma_values}")
-    print(f"Fixed N: {fixed_n}")
-    print(f"Number of outliers (k): {args.k_outliers}")
-    print(f"Dimensionality: {args.dim}")
+    print(f"Number of outliers (k): {k_outliers} ({args.outlier_pct}% of N)")
     print(f"Runs per sigma: {args.runs}")
     print(f"Outlier direction: Random Direction")
     print()
@@ -157,24 +212,31 @@ def run_sigma_experiment(args):
             
             # Generate data for this run
             run_seed = args.seed + run_idx + sigma * 1000 if args.seed is not None else None
-            X, Y = generate_data(fixed_n, args.dim, run_seed)
+            
+            if data_source == 'cifar10':
+                X, Y = generate_cifar10_data(n_points=fixed_n, seed=run_seed)
+            else:
+                X, Y = generate_synthetic_data(fixed_n, dim, run_seed)
             
             # Create outliers in random direction according to selected mode
             outlier_seed = run_seed + 10000 if run_seed is not None else None
             if args.outlier_direction_mode == 'single':
-                Y_prime = create_outliers_random_direction(X, Y, args.k_outliers, sigma, outlier_seed)
+                Y_prime = create_outliers_random_direction(X, Y, k_outliers, sigma, outlier_seed)
                 mode_suffix = 'single'
             else:  # 'per_outlier'
-                Y_prime = create_outliers_per_outlier_random_direction(X, Y, args.k_outliers, sigma, outlier_seed)
+                Y_prime = create_outliers_per_outlier_random_direction(X, Y, k_outliers, sigma, outlier_seed)
                 mode_suffix = 'per_outlier'
-            experiment_name = 'varying_sigma_random'
+            
+            experiment_name = f'varying_sigma_random_{data_source}'
             case_name = f'outliers_random_direction_{mode_suffix}'
             
             row = {
                 'experiment': experiment_name,
-                'n_points': fixed_n,
-                'dim': args.dim,
-                'k_outliers': args.k_outliers,
+                'data_source': data_source,
+                'n_points': len(X),
+                'dim': X.shape[1],
+                'outlier_pct': args.outlier_pct,
+                'k_outliers': k_outliers,
                 'sigma': sigma,
                 'run': run_idx + 1,
                 'seed': run_seed,
@@ -224,23 +286,29 @@ def run_sigma_experiment(args):
     return results
 
 
-
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description='Outlier impact benchmark: varying sigma with random direction only'
+        description='Outlier impact benchmark: varying sigma with random direction for synthetic and CIFAR-10 data'
     )
     
-    # Dataset parameters (vary sigma with fixed N)
+    # Data source selection
+    parser.add_argument('--data-sources', nargs='+', choices=['synthetic', 'cifar10', 'both'], default=['both'],
+                        help='Data sources to benchmark: synthetic, cifar10, or both')
+    
+    # Sigma parameters (for both data sources)
     parser.add_argument('--sigma-min', type=int, default=0, help='Minimum sigma (std deviations) for varying sigma experiments')
     parser.add_argument('--sigma-max', type=int, default=128, help='Maximum sigma (std deviations) for varying sigma experiments')
     parser.add_argument('--sigma-step', type=int, default=2, help='Multiplicative factor for sigma after initial 0 and 1 (e.g., 2 gives 0,1,2,4,8,...)')
-    parser.add_argument('--fixed-n', type=int, default=1000, help='Fixed number of points for both experiments')
     
-    # Outlier parameters
-    parser.add_argument('--k-outliers', type=int, default=20, help='Number of outliers to create')
-    parser.add_argument('--dim', type=int, default=50, help='Dimensionality of the data')
+    # Synthetic data parameters
+    parser.add_argument('--fixed-n', type=int, default=1000, help='Fixed number of points for synthetic data')
+    parser.add_argument('--dim', type=int, default=50, help='Dimensionality of synthetic data')
+    
+    # CIFAR-10 data parameters
+    parser.add_argument('--cifar10-n', type=int, default=None, help='Number of CIFAR-10 samples to use (default: all 10000)')
+    
+    # Outlier parameters (shared)
+    parser.add_argument('--outlier-pct', type=float, default=2.0, help='Percentage of data points to make outliers (default: 2%%)')
     parser.add_argument('--outlier-direction-mode', choices=['single', 'per_outlier'], default='per_outlier',
                         help='Outlier translation mode: single random direction for all outliers, or per_outlier random directions')
     
@@ -249,15 +317,30 @@ def main():
     parser.add_argument('--runs', type=int, default=20, help='Number of runs per configuration (for averaging)')
 
     args = parser.parse_args()
+    
+    # Normalize data sources
+    if 'both' in args.data_sources:
+        data_sources = ['synthetic', 'cifar10']
+    else:
+        data_sources = args.data_sources
 
     print(f"Outlier Impact Benchmark:")
+    print(f"Data sources: {data_sources}")
+    print(f"Outlier percentage: {args.outlier_pct}%")
     print(f"RNG seed: {args.seed}")
     print(f"Runs per configuration: {args.runs}")
-    print(f"Running experiment: random direction only")
     print(f"Outlier direction mode: {args.outlier_direction_mode}")
     print()
 
-    all_results = run_sigma_experiment(args)
+    all_results = []
+    
+    for data_source in data_sources:
+        print(f"\n{'='*60}")
+        print(f"Running experiments with {data_source.upper()} data")
+        print(f"{'='*60}\n")
+        
+        results = run_sigma_experiment(args, data_source)
+        all_results.extend(results)
 
     # Create DataFrame and save results
     df = pd.DataFrame(all_results)
@@ -266,7 +349,9 @@ def main():
     results_dir = Path(__file__).parent.parent / 'results/benchmark_outliers'
     results_dir.mkdir(parents=True, exist_ok=True)
     
-    filename = f"outliers_benchmark_random_direction_{args.outlier_direction_mode}_sigma{args.sigma_min}-{args.sigma_max}_n{args.fixed_n}_k{args.k_outliers}_runs{args.runs}_seed{args.seed}.csv"
+    # Create filename based on data sources used
+    data_source_str = '_'.join(sorted(data_sources))
+    filename = f"outliers_benchmark_{data_source_str}_{args.outlier_direction_mode}_sigma{args.sigma_min}-{args.sigma_max}_pct{args.outlier_pct}_runs{args.runs}_seed{args.seed}.csv"
     
     filepath = results_dir / filename
     df.to_csv(filepath, index=False)
@@ -277,16 +362,25 @@ def main():
     
     score_columns = [col for col in df.columns if col.endswith('_score')]
     
-    print(f"\nRANDOM DIRECTION EXPERIMENT (N={args.fixed_n}, k={args.k_outliers}):")
-    random_data = df[df['experiment'] == 'varying_sigma_random']
-    random_summary = random_data.groupby('sigma')[score_columns].mean().reset_index()
-    print("Average scores across runs:")
-    print(random_summary.to_string(index=False, float_format='%.6f'))
-    
-    print("\nTiming summary for random direction:")
-    time_columns = [col for col in df.columns if col.endswith('_time')]
-    random_time_summary = random_data.groupby('sigma')[time_columns].mean().reset_index()
-    print(random_time_summary.to_string(index=False, float_format='%.4f'))
+    for data_source in data_sources:
+        source_data = df[df['data_source'] == data_source]
+        if len(source_data) == 0:
+            continue
+            
+        source_display = 'CIFAR-10' if data_source == 'cifar10' else 'Synthetic'
+        n_points = source_data['n_points'].iloc[0]
+        dim = source_data['dim'].iloc[0]
+        k_outliers = source_data['k_outliers'].iloc[0]
+        
+        print(f"\n{source_display.upper()} DATA (N={n_points}, dim={dim}, k={k_outliers} [{args.outlier_pct}%]):")
+        summary = source_data.groupby('sigma')[score_columns].mean().reset_index()
+        print("Average scores across runs:")
+        print(summary.to_string(index=False, float_format='%.6f'))
+        
+        print(f"\nTiming summary for {source_display}:")
+        time_columns = [col for col in df.columns if col.endswith('_time')]
+        time_summary = source_data.groupby('sigma')[time_columns].mean().reset_index()
+        print(time_summary.to_string(index=False, float_format='%.4f'))
     
     print(f"\nTotal measurements: {len(all_results)}")
     
