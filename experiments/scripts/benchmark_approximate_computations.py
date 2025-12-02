@@ -11,15 +11,14 @@ from src.qsi import EfficientQSI, EfficientApproxQSI, ApproxQSI
 from src.data import RepresentationPair
 
 
-def make_half_identical_data(n_points: int, dim: int, seed: int | None = None) -> tuple[np.ndarray, np.ndarray]:
-    rng = np.random.default_rng(seed)
-    X = rng.random((n_points, dim))
-    Y = np.empty_like(X)
-    half = n_points // 2
-    # First half identical
-    Y[:half] = X[:half]
-    # Second half random (independent of X)
-    Y[half:] = rng.random((n_points - half, dim))
+def load_cifar10_representations(data_dir: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Load CIFAR-10 initial and final epoch representations."""
+    initial_path = data_dir / "cifar-10-initial-epoch-val-representations.npy"
+    final_path = data_dir / "cifar-10-final-epoch-val-representations.npy"
+    
+    X = np.load(initial_path)
+    Y = np.load(final_path)
+
     return X, Y
 
 
@@ -89,29 +88,31 @@ def compute_approx_scores(X: np.ndarray, Y: np.ndarray, run_seed: int,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Benchmark approximate computations with half-identical synthetic data.')
-    parser.add_argument('--n', type=int, default=1000, help='Number of points')
-    parser.add_argument('--dim', type=int, default=50, help='Dimensionality')
+    parser = argparse.ArgumentParser(description='Benchmark approximate computations on CIFAR-10 initial vs final epoch representations.')
     parser.add_argument('--seed', type=int, default=0, help='Base RNG seed')
 
-    parser.add_argument('--approx-runs', type=int, default=5, help='Number of approximation runs')
-    parser.add_argument('--batch-size', type=int, default=100, help='Mini-batch size for approximate methods')
+    parser.add_argument('--approx-runs', type=int, default=20, help='Number of approximation runs')
+    parser.add_argument('--batch-size', type=int, default=1000, help='Mini-batch size for approximate methods')
     parser.add_argument('--no-batches-sweep', type=int, default=[1, 2, 4, 8, 16, 32, 64, 128],
                         help='Values of no_batches to sweep over for approximations')
     parser.add_argument('--n-threads', type=int, default=8, help='Threads for parallel approximate methods')
 
     args = parser.parse_args()
 
-    print("=== Benchmark: Approximate Computations (Half-Identical Setup) ===")
-    print(f"n={args.n}, dim={args.dim}, seed={args.seed}")
+    # Load CIFAR-10 representations
+    data_dir = Path(__file__).parent.parent.parent / 'data'
+    print("[Setup] Loading CIFAR-10 representations...")
+    X, Y = load_cifar10_representations(data_dir)
+    
+    # Derive n and dim from the loaded data
+    n = X.shape[0]
+    dim = X.shape[1]
+
+    print("=== Benchmark: Approximate Computations (CIFAR-10 Initial vs Final Epoch) ===")
+    print(f"n={n}, dim={dim}, seed={args.seed}")
     print(f"approx_runs={args.approx_runs}, batch_size={args.batch_size}, no_batches_sweep={args.no_batches_sweep}")
     print(f"n_threads={args.n_threads}")
-
-    # Generate data
-    print("[Setup] Generating data...")
-    X, Y = make_half_identical_data(args.n, args.dim, seed=args.seed)
-    half = args.n // 2
-    print(f"[Setup] Data ready: X.shape={X.shape}, Y.shape={Y.shape}. First {half} rows are identical.")
+    print(f"[Setup] Data ready: X.shape={X.shape} (initial epoch), Y.shape={Y.shape} (final epoch)")
 
     # Exact scores row
     print("[Exact] Starting exact computations...")
@@ -121,8 +122,8 @@ def main():
     # Flatten exact into a dict of scalars (baseline runner returns scalars)
     exact_row = {
         'type': 'exact',
-        'n': args.n,
-        'dim': args.dim,
+        'n': n,
+        'dim': dim,
         'seed': args.seed,
     }
     # Baselines may include None for failures; store as NaN
@@ -152,8 +153,8 @@ def main():
             row = {
                 'type': 'approx',
                 'run': i + 1,
-                'n': args.n,
-                'dim': args.dim,
+                'n': n,
+                'dim': dim,
                 'seed': run_seed,
                 'no_batches': nb,
             }
@@ -168,8 +169,8 @@ def main():
     results_dir = Path(__file__).parent.parent / 'results' / 'benchmark_approximate'
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    exact_path = results_dir / f"exact_scores_n{args.n}_d{args.dim}_seed{args.seed}.csv"
-    approx_path = results_dir / f"approx_scores_n{args.n}_d{args.dim}_runs{args.approx_runs}_seed{args.seed}.csv"
+    exact_path = results_dir / f"exact_scores_n{n}_d{dim}_seed{args.seed}.csv"
+    approx_path = results_dir / f"approx_scores_n{n}_d{dim}_runs{args.approx_runs}_seed{args.seed}.csv"
 
     exact_df.to_csv(exact_path, index=False)
     approx_df.to_csv(approx_path, index=False)

@@ -93,11 +93,12 @@ def run_baseline_measures(X: np.ndarray, Y: np.ndarray, time_monitor: bool = Fal
                 results[measure_name] = (score, time_taken)
             else:
                 results[measure_name] = BaselineMeasure(measure_path)(X, Y)
-        except Exception:
+        except Exception as e:
             if time_monitor:
                 results[measure_name] = (None, None)
             else:
                 results[measure_name] = None
+            print(f"Error running {measure_name} due to Error: {e}")
     return results
 
 def run_approximate_baseline_measures(X: np.ndarray, Y: np.ndarray, batch_size: int = 100, no_batches: int = 10, seed: int = 42):
@@ -106,8 +107,8 @@ def run_approximate_baseline_measures(X: np.ndarray, Y: np.ndarray, batch_size: 
         try:
             metric = ApproximateBaselineMeasure(measure_path)
             results[f"B-{measure_name}"] = metric(X, Y, batch_size, no_batches, seed)
-        except Exception:
+        except Exception as e:
             results[f"B-{measure_name}"] = None
-            print(f"Error running {measure_name}")
+            print(f"Error running {measure_name} due to Error: {e}")
     results["C-CKA"] = ApproximateCKA()(X, Y, batch_size, no_batches, seed)
     return results
