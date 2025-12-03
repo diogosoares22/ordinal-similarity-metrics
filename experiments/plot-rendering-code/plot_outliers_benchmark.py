@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Plot script for outliers benchmark results (random direction only).
-Creates a visualization of similarity measures as a function of sigma (outlier strength).
+Creates visualizations of similarity measures as a function of sigma (outlier strength).
+Generates separate plots for synthetic and CIFAR-10 data sources.
 
 Style, colors, and layout are consistent with plot_independent_benchmark.py
 for use in the same academic paper.
@@ -49,13 +50,28 @@ def load_and_process_data(csv_path: str) -> pd.DataFrame:
     return df, score_columns, measure_names
 
 
-def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict, output_dir: Path):
-    """Create a plot with sigma on the x-axis and similarity scores on the y-axis."""
-    # Filter data to the random-direction experiment
-    data = df[df['experiment'] == 'varying_sigma_random'] if 'experiment' in df.columns else df
+def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict, 
+                      output_dir: Path, data_source: str):
+    """Create a plot with sigma on the x-axis and similarity scores on the y-axis.
+    
+    Args:
+        df: DataFrame with benchmark results
+        score_columns: List of score column names
+        measure_names: Dict mapping column names to display names
+        output_dir: Directory to save the plot
+        data_source: Either 'synthetic' or 'cifar10'
+    """
+    # Filter data to the specific data source
+    if 'data_source' in df.columns:
+        data = df[df['data_source'] == data_source]
+    else:
+        # Fallback for old format CSV files
+        experiment_name = f'varying_sigma_random_{data_source}' if data_source != 'synthetic' else 'varying_sigma_random'
+        data = df[df['experiment'] == experiment_name] if 'experiment' in df.columns else df
+    
     if data.empty:
-        print("No data found for random-direction sigma experiment.")
-        return
+        print(f"No data found for {data_source} data source.")
+        return False
 
     # Aggregate by sigma
     avg_df = data.groupby('sigma')[score_columns].mean().reset_index()
@@ -166,8 +182,13 @@ def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict
         lh.set_markersize(28)
 
     plt.tight_layout(rect=[0, 0, 0.95, 1])
-    plt.savefig(output_dir / 'outliers_benchmark.png', dpi=300, bbox_inches='tight')
+    
+    # Save with data source in filename
+    output_filename = f'outliers_benchmark_{data_source}.png'
+    plt.savefig(output_dir / output_filename, dpi=300, bbox_inches='tight')
     plt.close()
+    
+    return True
 
 
 def main():
@@ -207,18 +228,33 @@ def main():
         output_dir = Path(args.output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
 
-    print(f"Creating plot for outliers benchmark results...")
+    print(f"Creating plots for outliers benchmark results...")
     print(f"Data shape: {df.shape}")
     print(f"Measures found: {list(measure_names.values())}")
-
-    create_sigma_plot(df, score_columns, measure_names, output_dir)
+    
+    # Get available data sources from the CSV
+    if 'data_source' in df.columns:
+        data_sources = df['data_source'].unique().tolist()
+    else:
+        # Fallback for old format - assume synthetic only
+        data_sources = ['synthetic']
+    
+    print(f"Data sources found: {data_sources}")
+    
+    generated_files = []
+    
+    # Generate a plot for each data source
+    for data_source in data_sources:
+        print(f"\nGenerating plot for {data_source} data...")
+        success = create_sigma_plot(df, score_columns, measure_names, output_dir, data_source)
+        if success:
+            generated_files.append(f'outliers_benchmark_{data_source}.png')
 
     print(f"\nPlots saved to: {output_dir}")
     print("Generated files:")
-    print("  - outliers_benchmark.png: Sigma vs similarity scores")
+    for f in generated_files:
+        print(f"  - {f}: Sigma vs similarity scores")
 
 
 if __name__ == "__main__":
     main()
-
-
