@@ -63,6 +63,21 @@ def generate_cifar10_data(n_points: int | None = None, seed: int | None = None) 
     return X, Y
 
 
+def compute_avg_pairwise_distance(X: np.ndarray) -> float:
+    """
+    Compute the average pairwise L2 distance between all points in X.
+    
+    Args:
+        X: Data matrix of shape (n_points, dim)
+    
+    Returns:
+        Average pairwise L2 distance
+    """
+    from scipy.spatial.distance import pdist
+    distances = pdist(X, metric='euclidean')
+    return float(np.mean(distances))
+
+
 def random_direction(dim: int, seed: int | None = None) -> np.ndarray:
     """Generate a random unit direction vector."""
     rng = np.random.default_rng(seed)
@@ -78,16 +93,18 @@ def translate_subset(Y: np.ndarray, indices: np.ndarray, direction: np.ndarray, 
     return Yp
 
 
-def create_outliers_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: int, sigma: float, seed: int | None = None) -> np.ndarray:
+def create_outliers_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: int, sigma: float, 
+                                      avg_distance: float, seed: int | None = None) -> np.ndarray:
     """
-    Create outliers by translating k randomly selected points in Y by sigma standard deviations
+    Create outliers by translating k randomly selected points in Y by sigma * avg_distance
     along a random direction.
     
     Args:
         X: Original data
         Y: Data to modify (should be copy of X)
         k_outliers: Number of outliers to create
-        sigma: Number of standard deviations to translate points
+        sigma: Multiplier for average distance (outlier strength)
+        avg_distance: Average pairwise L2 distance in the dataset (scaling factor)
         seed: Random seed for reproducibility
     
     Returns:
@@ -105,16 +122,30 @@ def create_outliers_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: i
     n_points = len(Y)
     outlier_indices = rng.choice(n_points, size=min(k_outliers, n_points), replace=False)
     
-    # Translate outliers by sigma standard deviations
-    Y_prime = translate_subset(Y, outlier_indices, direction, sigma)
+    # Translate outliers by sigma * avg_distance
+    translation_magnitude = sigma * avg_distance
+    Y_prime = translate_subset(Y, outlier_indices, direction, translation_magnitude)
     
     return Y_prime
 
 
-def create_outliers_per_outlier_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: int, sigma: float, seed: int | None = None) -> np.ndarray:
+def create_outliers_per_outlier_random_direction(X: np.ndarray, Y: np.ndarray, k_outliers: int, sigma: float,
+                                                   avg_distance: float, seed: int | None = None) -> np.ndarray:
     """
     Create outliers by translating k randomly selected points in Y, where each selected point
     is moved along its own independently sampled random direction (k random directions total).
+    Translation magnitude is sigma * avg_distance.
+    
+    Args:
+        X: Original data
+        Y: Data to modify (should be copy of X)
+        k_outliers: Number of outliers to create
+        sigma: Multiplier for average distance (outlier strength)
+        avg_distance: Average pairwise L2 distance in the dataset (scaling factor)
+        seed: Random seed for reproducibility
+    
+    Returns:
+        Y_prime: Modified Y with outliers
     """
     if k_outliers == 0:
         return Y.copy()
@@ -124,11 +155,14 @@ def create_outliers_per_outlier_random_direction(X: np.ndarray, Y: np.ndarray, k
     n_points, dim = Y.shape
     outlier_indices = rng.choice(n_points, size=min(k_outliers, n_points), replace=False)
 
+    # Compute translation magnitude
+    translation_magnitude = sigma * avg_distance
+
     Y_prime = Y.copy()
     for idx in outlier_indices:
         v = rng.normal(0, 1, dim)
         v /= (np.linalg.norm(v) + 1e-12)
-        Y_prime[idx] = Y_prime[idx] + sigma * v
+        Y_prime[idx] = Y_prime[idx] + translation_magnitude * v
 
     return Y_prime
 
@@ -202,6 +236,17 @@ def run_sigma_experiment(args, data_source: str):
     print(f"Outlier direction: Random Direction")
     print()
     
+    # Compute average pairwise distance once for scaling outlier translations
+    # Generate a reference dataset to compute the average distance
+    if data_source == 'cifar10':
+        X_ref, _ = generate_cifar10_data(n_points=fixed_n, seed=args.seed)
+    else:
+        X_ref, _ = generate_synthetic_data(fixed_n, dim, args.seed)
+    
+    avg_distance = compute_avg_pairwise_distance(X_ref)
+    print(f"Average pairwise L2 distance: {avg_distance:.4f}")
+    print()
+    
     results = []
     
     for sigma in sigma_values:
@@ -221,10 +266,10 @@ def run_sigma_experiment(args, data_source: str):
             # Create outliers in random direction according to selected mode
             outlier_seed = run_seed + 10000 if run_seed is not None else None
             if args.outlier_direction_mode == 'single':
-                Y_prime = create_outliers_random_direction(X, Y, k_outliers, sigma, outlier_seed)
+                Y_prime = create_outliers_random_direction(X, Y, k_outliers, sigma, avg_distance, outlier_seed)
                 mode_suffix = 'single'
             else:  # 'per_outlier'
-                Y_prime = create_outliers_per_outlier_random_direction(X, Y, k_outliers, sigma, outlier_seed)
+                Y_prime = create_outliers_per_outlier_random_direction(X, Y, k_outliers, sigma, avg_distance, outlier_seed)
                 mode_suffix = 'per_outlier'
             
             experiment_name = f'varying_sigma_random_{data_source}'
@@ -238,6 +283,7 @@ def run_sigma_experiment(args, data_source: str):
                 'outlier_pct': args.outlier_pct,
                 'k_outliers': k_outliers,
                 'sigma': sigma,
+                'avg_pairwise_distance': avg_distance,
                 'run': run_idx + 1,
                 'seed': run_seed,
                 'case': case_name,
@@ -371,8 +417,9 @@ def main():
         n_points = source_data['n_points'].iloc[0]
         dim = source_data['dim'].iloc[0]
         k_outliers = source_data['k_outliers'].iloc[0]
+        avg_dist = source_data['avg_pairwise_distance'].mean()
         
-        print(f"\n{source_display.upper()} DATA (N={n_points}, dim={dim}, k={k_outliers} [{args.outlier_pct}%]):")
+        print(f"\n{source_display.upper()} DATA (N={n_points}, dim={dim}, k={k_outliers} [{args.outlier_pct}%], avg_dist={avg_dist:.4f}):")
         summary = source_data.groupby('sigma')[score_columns].mean().reset_index()
         print("Average scores across runs:")
         print(summary.to_string(index=False, float_format='%.6f'))
