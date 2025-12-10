@@ -170,7 +170,7 @@ def main():
     results_dir.mkdir(parents=True, exist_ok=True)
 
     exact_path = results_dir / f"exact_scores_n{n}_d{dim}_seed{args.seed}.csv"
-    approx_path = results_dir / f"approx_scores_n{n}_d{dim}_runs{args.approx_runs}_seed{args.seed}.csv"
+    approx_path = results_dir / f"approx_scores_n{n}_d{dim}_runs{args.approx_runs}_seed{args.seed}_batch{args.batch_size}.csv"
 
     exact_df.to_csv(exact_path, index=False)
     approx_df.to_csv(approx_path, index=False)
