@@ -2,7 +2,7 @@
 """
 Plot script for outliers benchmark results (random direction only).
 Creates visualizations of similarity measures as a function of sigma (outlier strength).
-Generates separate plots for synthetic and CIFAR-10 data sources.
+Generates separate plots for synthetic and CIFAR-10 data sources, plus a combined plot.
 
 Style, colors, and layout are consistent with plot_independent_benchmark.py
 for use in the same academic paper.
@@ -50,6 +50,18 @@ def load_and_process_data(csv_path: str) -> pd.DataFrame:
     return df, score_columns, measure_names
 
 
+def compact_tick_formatter(value, _pos):
+    """Compact tick formatter (same style as independent benchmark)."""
+    try:
+        v = float(value)
+    except Exception:
+        return str(value)
+    if v >= 1000:
+        k = v / 1000.0
+        return f"{k:.1f}k".replace(".0k", "k")
+    return f"{int(v)}" if v.is_integer() else f"{v:g}"
+
+
 def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict, 
                       output_dir: Path, data_source: str):
     """Create a plot with sigma on the x-axis and similarity scores on the y-axis.
@@ -79,6 +91,7 @@ def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict
 
     fixed_n = data['n_points'].unique()[0]
     fixed_d = data['dim'].unique()[0]
+    fixed_k = data['k_outliers'].unique()[0] if 'k_outliers' in data.columns else None
 
     # Create figure
     fig, ax = plt.subplots(1, 1, figsize=(16, 6))
@@ -92,16 +105,6 @@ def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict
     markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
     linestyles = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--']
 
-    # Compact tick formatter (same style as independent benchmark)
-    def compact_tick_formatter(value, _pos):
-        try:
-            v = float(value)
-        except Exception:
-            return str(value)
-        if v >= 1000:
-            k = v / 1000.0
-            return f"{k:.1f}k".replace(".0k", "k")
-        return f"{int(v)}" if v.is_integer() else f"{v:g}"
     formatter = FuncFormatter(compact_tick_formatter)
 
     # Plot lines first
@@ -161,11 +164,14 @@ def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict
     ax.set_xlabel('Outlier Strength (\u03c3)', fontsize=30, fontweight='bold')
     ax.set_ylabel('Similarity Score', fontsize=30, fontweight='bold')
     ax.grid(True, alpha=0.2, linestyle='--', linewidth=4)
-    ax.text(0.02, 0.24, f'N={fixed_n}', transform=ax.transAxes, 
+    ax.text(0.02, 0.36, f'N={fixed_n}', transform=ax.transAxes, 
              fontsize=30, fontweight='bold', va='top', ha='left')
-    ax.text(0.05, 0.12, f'D={fixed_d}', transform=ax.transAxes, 
+    ax.text(0.02, 0.24, f'D={fixed_d}', transform=ax.transAxes, 
              fontsize=30, fontweight='bold', va='top', ha='left')
-    ax.set_ylim(-0.05, 1.05) # TODO change to -0.05, 1.05
+    if fixed_k is not None:
+        ax.text(0.02, 0.12, f'K={fixed_k}', transform=ax.transAxes, 
+                 fontsize=30, fontweight='bold', va='top', ha='left')
+    ax.set_ylim(-0.05, 1.05)
     ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
     sigma_ticks = sorted([int(s) for s in data['sigma'].unique()])
     ax.set_xticks(sigma_ticks)
@@ -185,6 +191,146 @@ def create_sigma_plot(df: pd.DataFrame, score_columns: list, measure_names: dict
     
     # Save with data source in filename
     output_filename = f'outliers_benchmark_{data_source}.png'
+    plt.savefig(output_dir / output_filename, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return True
+
+
+def create_combined_plot(df: pd.DataFrame, score_columns: list, measure_names: dict, 
+                         output_dir: Path):
+    """Create a combined plot with synthetic and CIFAR-10 side by side.
+    
+    Args:
+        df: DataFrame with benchmark results
+        score_columns: List of score column names
+        measure_names: Dict mapping column names to display names
+        output_dir: Directory to save the plot
+    """
+    from matplotlib.lines import Line2D
+    
+    # Check if we have both data sources
+    if 'data_source' not in df.columns:
+        print("Combined plot requires data_source column in CSV.")
+        return False
+    
+    data_sources = df['data_source'].unique().tolist()
+    
+    # Ensure we have both synthetic and cifar10
+    if 'synthetic' not in data_sources or 'cifar10' not in data_sources:
+        print("Combined plot requires both synthetic and cifar10 data sources.")
+        return False
+    
+    # Create figure with 2 subplots
+    fig, axes = plt.subplots(1, 2, figsize=(24, 6), sharey=True)
+    
+    # Use matplotlib's tab10 colormap and consistent markers/linestyles
+    colors = plt.cm.tab10.colors
+    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
+    linestyles = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--']
+    
+    formatter = FuncFormatter(compact_tick_formatter)
+    
+    legend_handles = []
+    
+    # Plot order: synthetic first, then cifar10
+    plot_order = ['synthetic', 'cifar10']
+    
+    for ax_idx, data_source in enumerate(plot_order):
+        ax = axes[ax_idx]
+        data = df[df['data_source'] == data_source]
+        
+        if data.empty:
+            continue
+        
+        # Aggregate by sigma
+        avg_df = data.groupby('sigma')[score_columns].mean().reset_index()
+        std_df = data.groupby('sigma')[score_columns].std().reset_index()
+        
+        fixed_n = data['n_points'].unique()[0]
+        fixed_d = data['dim'].unique()[0]
+        fixed_k = data['k_outliers'].unique()[0] if 'k_outliers' in data.columns else None
+        
+        # Use symmetric log scale
+        ax.set_xscale('symlog', base=2, linthresh=1, linscale=1)
+        
+        # Plot lines first
+        for i, col in enumerate(score_columns):
+            if col in avg_df.columns:
+                valid_mask = ~avg_df[col].isna()
+                if valid_mask.any():
+                    x_vals = avg_df.loc[valid_mask, 'sigma']
+                    y_vals = avg_df.loc[valid_mask, col]
+                    ax.plot(x_vals, y_vals,
+                            linestyle=linestyles[i % len(linestyles)],
+                            linewidth=5.6,
+                            color=colors[i % len(colors)],
+                            alpha=0.9,
+                            zorder=2)
+                    
+                    # Only create legend handles from first subplot
+                    if ax_idx == 0:
+                        legend_handles.append(Line2D([0], [0],
+                                                     color=colors[i % len(colors)],
+                                                     linestyle=linestyles[i % len(linestyles)],
+                                                     linewidth=2.5,
+                                                     marker=markers[i % len(markers)],
+                                                     markersize=7,
+                                                     markeredgewidth=1.5,
+                                                     markeredgecolor='white',
+                                                     label=measure_names[col]))
+        
+        # Overlay markers
+        for i, col in enumerate(score_columns):
+            if col in avg_df.columns:
+                valid_mask = ~avg_df[col].isna()
+                if valid_mask.any():
+                    x_vals = avg_df.loc[valid_mask, 'sigma']
+                    y_vals = avg_df.loc[valid_mask, col]
+                    marker_offset = i % 3
+                    ax.plot(x_vals, y_vals,
+                            marker=markers[i % len(markers)],
+                            linestyle='',
+                            markersize=28,
+                            color=colors[i % len(colors)],
+                            markeredgewidth=2.8, markeredgecolor='white',
+                            markevery=(marker_offset, 3), zorder=10)
+        
+        # Labels and grid
+        ax.set_xlabel('Outlier Strength (\u03c3)', fontsize=30, fontweight='bold')
+        if ax_idx == 0:
+            ax.set_ylabel('Similarity Score', fontsize=30, fontweight='bold')
+        ax.grid(True, alpha=0.2, linestyle='--', linewidth=4)
+        
+        # Add N, D, K annotations
+        ax.text(0.02, 0.36, f'N={fixed_n}', transform=ax.transAxes, 
+                 fontsize=30, fontweight='bold', va='top', ha='left')
+        ax.text(0.02, 0.24, f'D={fixed_d}', transform=ax.transAxes, 
+                 fontsize=30, fontweight='bold', va='top', ha='left')
+        if fixed_k is not None:
+            ax.text(0.02, 0.12, f'K={fixed_k}', transform=ax.transAxes, 
+                     fontsize=30, fontweight='bold', va='top', ha='left')
+        
+        ax.set_ylim(-0.05, 1.05)
+        ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+        sigma_ticks = sorted([int(s) for s in data['sigma'].unique()])
+        ax.set_xticks(sigma_ticks)
+        ax.xaxis.set_major_formatter(formatter)
+    
+    # Add legend only to the second subplot (CIFAR-10)
+    legend = axes[1].legend(handles=legend_handles,
+                            loc='center left', bbox_to_anchor=(1.01, 0.5),
+                            borderaxespad=0.0,
+                            fontsize=28, framealpha=0.95, edgecolor='black',
+                            fancybox=False, shadow=False, ncol=1)
+    for lh in legend.legend_handles:
+        lh.set_linewidth(6.4)
+        lh.set_markersize(28)
+    
+    plt.tight_layout(rect=[0, 0, 0.92, 1])
+    
+    # Save combined plot
+    output_filename = 'outliers_benchmark_combined.png'
     plt.savefig(output_dir / output_filename, dpi=300, bbox_inches='tight')
     plt.close()
     
@@ -249,11 +395,18 @@ def main():
         success = create_sigma_plot(df, score_columns, measure_names, output_dir, data_source)
         if success:
             generated_files.append(f'outliers_benchmark_{data_source}.png')
+    
+    # Generate combined plot if we have both data sources
+    if 'synthetic' in data_sources and 'cifar10' in data_sources:
+        print(f"\nGenerating combined plot...")
+        success = create_combined_plot(df, score_columns, measure_names, output_dir)
+        if success:
+            generated_files.append('outliers_benchmark_combined.png')
 
     print(f"\nPlots saved to: {output_dir}")
     print("Generated files:")
     for f in generated_files:
-        print(f"  - {f}: Sigma vs similarity scores")
+        print(f"  - {f}")
 
 
 if __name__ == "__main__":
