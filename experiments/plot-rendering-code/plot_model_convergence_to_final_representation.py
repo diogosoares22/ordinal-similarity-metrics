@@ -1,32 +1,45 @@
 #!/usr/bin/env python3
 """
 Plot script for model convergence to final representation.
-Creates visualizations of similarity measures as a function of training epoch,
-showing how representations converge to the final trained representation.
-Generates plots for both CIFAR-10 and CIFAR-100 datasets, averaging across seeds.
+Creates a combined visualization with TSI, QSI, and CKA showing how representations 
+converge to final representations for both same-seed and distinct-seed comparisons.
 
-Style, colors, and layout are consistent with other benchmark plots
-for use in the same academic paper.
+Only plots CIFAR-10 results, averaging across seeds.
 """
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import FuncFormatter
+from matplotlib.lines import Line2D
 from pathlib import Path
 import argparse
 import re
 
-# Set style for scientific publication (consistent with other plots)
+# Set style for scientific publication
 plt.style.use('seaborn-v0_8-paper')
 plt.rcParams['font.family'] = 'serif'
-plt.rcParams['font.size'] = 28
-plt.rcParams['axes.labelsize'] = 30
-plt.rcParams['axes.titlesize'] = 30
-plt.rcParams['xtick.labelsize'] = 28
-plt.rcParams['ytick.labelsize'] = 28
-plt.rcParams['legend.fontsize'] = 32
-plt.rcParams['figure.titlesize'] = 30
+plt.rcParams['font.size'] = 22
+plt.rcParams['axes.labelsize'] = 24
+plt.rcParams['axes.titlesize'] = 24
+plt.rcParams['xtick.labelsize'] = 20
+plt.rcParams['ytick.labelsize'] = 20
+plt.rcParams['legend.fontsize'] = 20
+plt.rcParams['figure.titlesize'] = 26
+
+# Color scheme for same-seed vs distinct-seed
+COLORS = {
+    'TSI': {'same': '#1b7837', 'distinct': '#762a83'},  # Green vs Purple
+    'QSI': {'same': '#2166ac', 'distinct': '#b2182b'},  # Blue vs Red
+    'CKA': {'same': '#d95f02', 'distinct': '#7570b3'},  # Orange vs Violet
+}
+
+# Display names for metrics
+METRIC_DISPLAY = {
+    'C-TSI': 'TSI',
+    'C-QSI': 'QSI', 
+    'C-CKA': 'CKA',
+}
 
 
 def find_experiment_folders(results_dir: Path, dataset: str) -> list[Path]:
@@ -34,14 +47,6 @@ def find_experiment_folders(results_dir: Path, dataset: str) -> list[Path]:
     pattern = f"vit_{dataset}_*"
     folders = sorted(results_dir.glob(pattern))
     return [f for f in folders if f.is_dir()]
-
-
-def load_similarity_data(folder: Path) -> pd.DataFrame | None:
-    """Load similarity_to_final_epoch.csv from an experiment folder."""
-    csv_path = folder / "similarity_to_final_epoch.csv"
-    if not csv_path.exists():
-        return None
-    return pd.read_csv(csv_path)
 
 
 def extract_seed_from_folder(folder: Path) -> int | None:
@@ -52,20 +57,22 @@ def extract_seed_from_folder(folder: Path) -> int | None:
     return None
 
 
-def load_all_seeds(results_dir: Path, dataset: str) -> tuple[pd.DataFrame, int]:
+def load_same_seed_data(results_dir: Path) -> tuple[pd.DataFrame, int]:
     """
-    Load and combine similarity data from all seeds for a dataset.
+    Load same-seed convergence data from all seeds.
+    Uses similarity_to_final_epoch.csv from each seed folder.
     
     Returns:
         Combined DataFrame with all seeds, and number of seeds found
     """
-    folders = find_experiment_folders(results_dir, dataset)
+    folders = find_experiment_folders(results_dir, 'cifar10')
     
     all_dfs = []
     for folder in folders:
         seed = extract_seed_from_folder(folder)
-        df = load_similarity_data(folder)
-        if df is not None and seed is not None:
+        csv_path = folder / "similarity_to_final_epoch.csv"
+        if csv_path.exists() and seed is not None:
+            df = pd.read_csv(csv_path)
             df['seed'] = seed
             all_dfs.append(df)
     
@@ -77,11 +84,49 @@ def load_all_seeds(results_dir: Path, dataset: str) -> tuple[pd.DataFrame, int]:
     return combined, n_seeds
 
 
-def get_score_columns(df: pd.DataFrame) -> list[str]:
-    """Get selected score columns from the DataFrame (C-CKA, C-TSI, C-QSI only)."""
-    # Only include these specific columns
-    target_cols = ['C-TSI', 'C-QSI', 'C-CKA', 'B-CKNNA', 'B-MutualNN']
-    return target_cols
+def load_cross_seed_data(results_dir: Path) -> tuple[pd.DataFrame, int]:
+    """
+    Load distinct-seed convergence data from cross_seed_similarity CSV.
+    Only keeps rows where seed_final != seed_trajectory.
+    
+    Returns:
+        DataFrame with cross-seed comparisons and number of unique seed pairs
+    """
+    # Find the cross_seed_similarity file (should be in seed0 folder)
+    seed0_folder = results_dir / "vit_cifar10_lr0.0001_epochs200_seed0"
+    
+    # Try to find the cross_seed file
+    cross_seed_files = list(seed0_folder.glob("cross_seed_similarity_*.csv"))
+    
+    if not cross_seed_files:
+        print(f"No cross_seed_similarity file found in {seed0_folder}")
+        return pd.DataFrame(), 0
+    
+    csv_path = cross_seed_files[0]
+    df = pd.read_csv(csv_path)
+    
+    # Filter to only distinct seed comparisons
+    df = df[df['seed_final'] != df['seed_trajectory']].copy()
+    
+    # Rename epoch_trajectory to epoch for consistency
+    df = df.rename(columns={'epoch_trajectory': 'epoch'})
+    
+    # Count unique seed pairs
+    n_pairs = len(df[['seed_final', 'seed_trajectory']].drop_duplicates())
+    
+    return df, n_pairs
+
+
+def aggregate_same_seed(df: pd.DataFrame, metric: str) -> tuple[pd.Series, pd.Series]:
+    """Aggregate same-seed data by epoch, returning mean and std."""
+    grouped = df.groupby('epoch')[metric]
+    return grouped.mean(), grouped.std()
+
+
+def aggregate_cross_seed(df: pd.DataFrame, metric: str) -> tuple[pd.Series, pd.Series]:
+    """Aggregate cross-seed data by epoch, returning mean and std across all seed pairs."""
+    grouped = df.groupby('epoch')[metric]
+    return grouped.mean(), grouped.std()
 
 
 def compact_tick_formatter(value, _pos):
@@ -96,239 +141,158 @@ def compact_tick_formatter(value, _pos):
     return f"{int(v)}" if v.is_integer() else f"{v:g}"
 
 
-def create_convergence_plot(df: pd.DataFrame, score_columns: list, output_dir: Path, 
-                            dataset: str, n_seeds: int):
-    """Create a convergence plot for a single dataset.
+def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame,
+                         metrics: list, output_dir: Path):
+    """
+    Create a combined convergence plot with all metrics sharing the x-axis.
     
     Args:
-        df: DataFrame with similarity data (combined across seeds)
-        score_columns: List of score column names to plot
-        output_dir: Directory to save the plot
-        dataset: Dataset name (e.g., 'cifar10', 'cifar100')
-        n_seeds: Number of seeds used for averaging
-    """
-    from matplotlib.lines import Line2D
-    
-    if df.empty:
-        print(f"No data found for {dataset}.")
-        return False
-    
-    # Aggregate by epoch: mean and std across seeds
-    avg_df = df.groupby('epoch')[score_columns].mean().reset_index()
-    std_df = df.groupby('epoch')[score_columns].std().reset_index()
-    
-    # Create figure
-    fig, ax = plt.subplots(1, 1, figsize=(16, 6))
-    
-    # Use matplotlib's tab10 colormap and consistent markers/linestyles
-    colors = plt.cm.tab10.colors
-    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
-    linestyles = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--']
-    
-    formatter = FuncFormatter(compact_tick_formatter)
-    
-    legend_handles = []
-    
-    # Plot lines first
-    for i, col in enumerate(score_columns):
-        if col in avg_df.columns:
-            valid_mask = ~avg_df[col].isna()
-            if valid_mask.any():
-                x_vals = avg_df.loc[valid_mask, 'epoch']
-                y_vals = avg_df.loc[valid_mask, col]
-                y_err = std_df.loc[valid_mask, col] if col in std_df.columns else None
-                
-                ax.plot(x_vals, y_vals,
-                        linestyle=linestyles[i % len(linestyles)],
-                        linewidth=5.6,
-                        color=colors[i % len(colors)],
-                        alpha=0.9,
-                        zorder=2)
-                
-                # Standard deviation shading
-                if y_err is not None and not y_err.isna().all():
-                    ax.fill_between(x_vals, y_vals - y_err, y_vals + y_err,
-                                    color=colors[i % len(colors)], alpha=0.15, zorder=1)
-                
-                # Legend handle
-                legend_handles.append(Line2D([0], [0],
-                                             color=colors[i % len(colors)],
-                                             linestyle=linestyles[i % len(linestyles)],
-                                             linewidth=2.5,
-                                             marker=markers[i % len(markers)],
-                                             markersize=7,
-                                             markeredgewidth=1.5,
-                                             markeredgecolor='white',
-                                             label=col))
-    
-    # Overlay markers
-    for i, col in enumerate(score_columns):
-        if col in avg_df.columns:
-            valid_mask = ~avg_df[col].isna()
-            if valid_mask.any():
-                x_vals = avg_df.loc[valid_mask, 'epoch']
-                y_vals = avg_df.loc[valid_mask, col]
-                marker_offset = i % 3
-                # Use markevery to not overcrowd with markers (show ~5 markers)
-                n_points = len(x_vals)
-                markevery = max(1, n_points // 5)
-                ax.plot(x_vals, y_vals,
-                        marker=markers[i % len(markers)],
-                        linestyle='',
-                        markersize=20,
-                        color=colors[i % len(colors)],
-                        markeredgewidth=2.0, markeredgecolor='white',
-                        markevery=(marker_offset * (markevery // 3), markevery), zorder=10)
-    
-    # Labels and grid
-    ax.set_xlabel('Epoch', fontsize=30, fontweight='bold')
-    ax.set_ylabel('Similarity Score', fontsize=30, fontweight='bold')
-    ax.grid(True, alpha=0.2, linestyle='--', linewidth=4)
-    
-    ax.set_ylim(-0.05, 1.05)
-    ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    ax.set_xlim(-5, avg_df['epoch'].max() + 5)
-    
-    # Legend formatting (to the right)
-    legend = ax.legend(handles=legend_handles,
-                       loc='center left', bbox_to_anchor=(1.01, 0.5),
-                       borderaxespad=0.0,
-                       fontsize=28, framealpha=0.95, edgecolor='black',
-                       fancybox=False, shadow=False, ncol=1)
-    for lh in legend.legend_handles:
-        lh.set_linewidth(6.4)
-        lh.set_markersize(28)
-    
-    plt.tight_layout(rect=[0, 0, 0.95, 1])
-    
-    # Save with dataset in filename
-    output_filename = f'model_convergence_{dataset}.png'
-    plt.savefig(output_dir / output_filename, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    return True
-
-
-def create_combined_plot(data_by_dataset: dict, score_columns: list, output_dir: Path):
-    """Create a combined plot with CIFAR-10 and CIFAR-100 side by side.
-    
-    Args:
-        data_by_dataset: Dict mapping dataset name to (df, n_seeds) tuple
-        score_columns: List of score column names to plot
+        same_seed_df: DataFrame with same-seed similarity data
+        cross_seed_df: DataFrame with cross-seed similarity data
+        metrics: List of metric column names (e.g., ['C-TSI', 'C-QSI', 'C-CKA'])
         output_dir: Directory to save the plot
     """
-    from matplotlib.lines import Line2D
+    n_metrics = len(metrics)
     
-    # Check if we have both datasets
-    if 'cifar10' not in data_by_dataset or 'cifar100' not in data_by_dataset:
-        print("Combined plot requires both CIFAR-10 and CIFAR-100 data.")
-        return False
+    # Create figure with shared x-axis
+    fig, axes = plt.subplots(n_metrics, 1, figsize=(6, 4 * n_metrics), sharex=True)
     
-    # Create figure with 2 subplots
-    fig, axes = plt.subplots(1, 2, figsize=(24, 6), sharey=True)
+    # Ensure axes is always a list
+    if n_metrics == 1:
+        axes = [axes]
     
-    # Use matplotlib's tab10 colormap and consistent markers/linestyles
-    colors = plt.cm.tab10.colors
-    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
-    linestyles = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--']
+    # Get max epoch for x-axis limits
+    max_epoch = 0
+    if not same_seed_df.empty:
+        max_epoch = max(max_epoch, same_seed_df['epoch'].max())
+    if not cross_seed_df.empty:
+        max_epoch = max(max_epoch, cross_seed_df['epoch'].max())
     
-    formatter = FuncFormatter(compact_tick_formatter)
+    # Legend handles (shared across all subplots)
+    shared_legend_handles = []
     
-    legend_handles = []
-    
-    # Plot order
-    plot_order = ['cifar10', 'cifar100']
-    
-    for ax_idx, dataset in enumerate(plot_order):
-        ax = axes[ax_idx]
-        df, n_seeds = data_by_dataset[dataset]
+    for idx, (ax, metric) in enumerate(zip(axes, metrics)):
+        metric_short = METRIC_DISPLAY.get(metric, metric)
+        colors = COLORS.get(metric_short, {'same': '#1f77b4', 'distinct': '#ff7f0e'})
         
-        if df.empty:
-            continue
+        # Plot same-seed convergence
+        if not same_seed_df.empty and metric in same_seed_df.columns:
+            same_mean, same_std = aggregate_same_seed(same_seed_df, metric)
+            epochs = same_mean.index
+            
+            # Plot line
+            ax.plot(epochs, same_mean,
+                    linestyle='-',
+                    linewidth=4,
+                    color=colors['same'],
+                    alpha=0.9,
+                    zorder=2)
+            
+            # Std shading
+            if same_std is not None and not same_std.isna().all():
+                ax.fill_between(epochs, same_mean - same_std, same_mean + same_std,
+                               color=colors['same'], alpha=0.15, zorder=1)
+            
+            # Add markers
+            n_points = len(epochs)
+            markevery = max(1, n_points // 6)
+            ax.plot(epochs, same_mean,
+                    marker='o',
+                    linestyle='',
+                    markersize=12,
+                    color=colors['same'],
+                    markeredgewidth=1.5, 
+                    markeredgecolor='white',
+                    markevery=markevery, 
+                    zorder=10)
+            
+            # Only add legend handle once (from first subplot)
+            if idx == 0:
+                shared_legend_handles.append(Line2D([0], [0],
+                                         color=colors['same'],
+                                         linestyle='-',
+                                         linewidth=3,
+                                         marker='o',
+                                         markersize=8,
+                                         markeredgewidth=1.5,
+                                         markeredgecolor='white',
+                                         label='Same Seed'))
         
-        # Aggregate by epoch
-        avg_df = df.groupby('epoch')[score_columns].mean().reset_index()
-        std_df = df.groupby('epoch')[score_columns].std().reset_index()
+        # Plot distinct-seed convergence
+        if not cross_seed_df.empty and metric in cross_seed_df.columns:
+            cross_mean, cross_std = aggregate_cross_seed(cross_seed_df, metric)
+            epochs = cross_mean.index
+            
+            # Plot line
+            ax.plot(epochs, cross_mean,
+                    linestyle='--',
+                    linewidth=4,
+                    color=colors['distinct'],
+                    alpha=0.9,
+                    zorder=2)
+            
+            # Std shading
+            if cross_std is not None and not cross_std.isna().all():
+                ax.fill_between(epochs, cross_mean - cross_std, cross_mean + cross_std,
+                               color=colors['distinct'], alpha=0.15, zorder=1)
+            
+            # Add markers
+            n_points = len(epochs)
+            markevery = max(1, n_points // 6)
+            ax.plot(epochs, cross_mean,
+                    marker='s',
+                    linestyle='',
+                    markersize=12,
+                    color=colors['distinct'],
+                    markeredgewidth=1.5, 
+                    markeredgecolor='white',
+                    markevery=(markevery // 2, markevery),  # Offset markers
+                    zorder=10)
+            
+            # Only add legend handle once (from first subplot)
+            if idx == 0:
+                shared_legend_handles.append(Line2D([0], [0],
+                                         color=colors['distinct'],
+                                         linestyle='--',
+                                         linewidth=3,
+                                         marker='s',
+                                         markersize=8,
+                                         markeredgewidth=1.5,
+                                         markeredgecolor='white',
+                                         label='Distinct Seed'))
         
-        # Plot lines first
-        for i, col in enumerate(score_columns):
-            if col in avg_df.columns:
-                valid_mask = ~avg_df[col].isna()
-                if valid_mask.any():
-                    x_vals = avg_df.loc[valid_mask, 'epoch']
-                    y_vals = avg_df.loc[valid_mask, col]
-                    y_err = std_df.loc[valid_mask, col] if col in std_df.columns else None
-                    
-                    ax.plot(x_vals, y_vals,
-                            linestyle=linestyles[i % len(linestyles)],
-                            linewidth=5.6,
-                            color=colors[i % len(colors)],
-                            alpha=0.9,
-                            zorder=2)
-                    
-                    # Standard deviation shading
-                    if y_err is not None and not y_err.isna().all():
-                        ax.fill_between(x_vals, y_vals - y_err, y_vals + y_err,
-                                        color=colors[i % len(colors)], alpha=0.15, zorder=1)
-                    
-                    # Only create legend handles from first subplot
-                    if ax_idx == 0:
-                        legend_handles.append(Line2D([0], [0],
-                                                     color=colors[i % len(colors)],
-                                                     linestyle=linestyles[i % len(linestyles)],
-                                                     linewidth=2.5,
-                                                     marker=markers[i % len(markers)],
-                                                     markersize=7,
-                                                     markeredgewidth=1.5,
-                                                     markeredgecolor='white',
-                                                     label=col))
-        
-        # Overlay markers
-        for i, col in enumerate(score_columns):
-            if col in avg_df.columns:
-                valid_mask = ~avg_df[col].isna()
-                if valid_mask.any():
-                    x_vals = avg_df.loc[valid_mask, 'epoch']
-                    y_vals = avg_df.loc[valid_mask, col]
-                    marker_offset = i % 3
-                    n_points = len(x_vals)
-                    markevery = max(1, n_points // 5)  # Show ~5 markers
-                    ax.plot(x_vals, y_vals,
-                            marker=markers[i % len(markers)],
-                            linestyle='',
-                            markersize=20,
-                            color=colors[i % len(colors)],
-                            markeredgewidth=2.0, markeredgecolor='white',
-                            markevery=(marker_offset * (markevery // 3), markevery), zorder=10)
-        
-        # Labels and grid
-        ax.set_xlabel('Epoch', fontsize=30, fontweight='bold')
-        if ax_idx == 0:
-            ax.set_ylabel('Similarity Score', fontsize=30, fontweight='bold')
-        ax.grid(True, alpha=0.2, linestyle='--', linewidth=4)
+        # Y-axis label with metric name
+        ax.set_ylabel(f'{metric_short}', fontsize=24, fontweight='bold')
+        ax.grid(True, alpha=0.2, linestyle='--', linewidth=1.5)
         
         ax.set_ylim(-0.05, 1.05)
-        ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-        ax.set_xlim(-5, avg_df['epoch'].max() + 5)
+        ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        ax.set_xlim(-5, max_epoch + 5)
+        
+        # Add metric-specific legend in each subplot showing the colors
+        metric_handles = [
+            Line2D([0], [0], color=colors['same'], linestyle='-', linewidth=4,
+                   marker='o', markersize=12, markeredgewidth=2, markeredgecolor='white',
+                   label='Same Seed'),
+            Line2D([0], [0], color=colors['distinct'], linestyle='--', linewidth=4,
+                   marker='s', markersize=12, markeredgewidth=2, markeredgecolor='white',
+                   label='Distinct Seed'),
+        ]
+        ax.legend(handles=metric_handles, loc='lower right', fontsize=22,
+                  framealpha=0.95, edgecolor='black', fancybox=False)
     
-    # Add legend only to the second subplot
-    legend = axes[1].legend(handles=legend_handles,
-                            loc='center left', bbox_to_anchor=(1.01, 0.5),
-                            borderaxespad=0.0,
-                            fontsize=28, framealpha=0.95, edgecolor='black',
-                            fancybox=False, shadow=False, ncol=1)
-    for lh in legend.legend_handles:
-        lh.set_linewidth(6.4)
-        lh.set_markersize(28)
+    # X-axis label only on bottom subplot
+    axes[-1].set_xlabel('Epoch', fontsize=24, fontweight='bold')
     
-    plt.tight_layout(rect=[0, 0, 0.92, 1])
+    plt.tight_layout()
     
-    # Save combined plot
-    output_filename = 'model_convergence_combined.png'
+    # Save
+    output_filename = 'model_convergence_combined_cifar10.png'
     plt.savefig(output_dir / output_filename, dpi=300, bbox_inches='tight')
     plt.close()
     
-    return True
+    print(f"  Generated: {output_filename}")
+    return output_filename
 
 
 def main():
@@ -360,53 +324,34 @@ def main():
 
     print(f"Loading data from: {results_dir}")
     
-    # Load data for both datasets
-    datasets = ['cifar10', 'cifar100']
-    data_by_dataset = {}
-    score_columns = []
+    # Load same-seed data (CIFAR-10 only)
+    same_seed_df, n_same_seeds = load_same_seed_data(results_dir)
+    if same_seed_df.empty:
+        print("No same-seed data found for CIFAR-10.")
+    else:
+        print(f"  Same-seed: {n_same_seeds} seeds, {len(same_seed_df)} rows")
     
-    for dataset in datasets:
-        df, n_seeds = load_all_seeds(results_dir, dataset)
-        if not df.empty:
-            data_by_dataset[dataset] = (df, n_seeds)
-            score_cols = get_score_columns(df)
-            score_columns = score_cols
-            print(f"  {dataset.upper()}: {n_seeds} seeds, {len(df)} rows")
-        else:
-            print(f"  {dataset.upper()}: No data found")
+    # Load cross-seed data
+    cross_seed_df, n_cross_pairs = load_cross_seed_data(results_dir)
+    if cross_seed_df.empty:
+        print("No cross-seed data found.")
+    else:
+        print(f"  Cross-seed: {n_cross_pairs} seed pairs, {len(cross_seed_df)} rows")
     
-    if not data_by_dataset:
-        print("No data found for any dataset.")
+    if same_seed_df.empty and cross_seed_df.empty:
+        print("No data found. Exiting.")
         return
     
-    # Use common score columns across datasets (ordered)
-    print(f"Measures found: {score_columns}")
+    # Metrics to plot (in order: TSI, QSI, CKA)
+    metrics = ['C-TSI', 'C-QSI', 'C-CKA']
     
-    generated_files = []
+    print(f"\nGenerating combined plot for metrics: {[METRIC_DISPLAY[m] for m in metrics]}")
     
-    # Generate individual plots for each dataset
-    for dataset, (df, n_seeds) in data_by_dataset.items():
-        print(f"\nGenerating plot for {dataset.upper()}...")
-        # Get score columns for this specific dataset
-        dataset_score_cols = score_columns
-        success = create_convergence_plot(df, dataset_score_cols, output_dir, dataset, n_seeds)
-        if success:
-            generated_files.append(f'model_convergence_{dataset}.png')
-    
-    # Generate combined plot if we have both datasets
-    if 'cifar10' in data_by_dataset and 'cifar100' in data_by_dataset:
-        print(f"\nGenerating combined plot...")
-        common_cols = score_columns
-        success = create_combined_plot(data_by_dataset, common_cols, output_dir)
-        if success:
-            generated_files.append('model_convergence_combined.png')
+    filename = create_combined_plot(same_seed_df, cross_seed_df, metrics, output_dir)
 
-    print(f"\nPlots saved to: {output_dir}")
-    print("Generated files:")
-    for f in generated_files:
-        print(f"  - {f}")
+    print(f"\nPlot saved to: {output_dir}")
+    print(f"  - {filename}")
 
 
 if __name__ == "__main__":
     main()
-
