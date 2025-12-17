@@ -218,6 +218,8 @@ if __name__ == "__main__":
     metrics = ["tsi", "qsi"]
     eps = 1e-3
     use_networkx = True
-    max_workers = cpu_count()
+    max_workers = os.cpu_count()
+
+    print(f"Using {max_workers} workers")
     
     compute_bounds_and_save(ns, metrics, eps, use_networkx, max_workers)
