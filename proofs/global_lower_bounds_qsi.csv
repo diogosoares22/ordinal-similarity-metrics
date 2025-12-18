@@ -1,0 +1,3 @@
+n,metric,lower_bound,num_configs,eps,time_seconds
+4,qsi,0.0,3,0.001,6.36
+5,qsi,0.0,43,0.001,62.75

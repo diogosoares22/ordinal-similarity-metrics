@@ -1,6 +1,7 @@
 import os
 import csv
 import time
+import argparse
 from find_all_representative_ordinal_Xs import get_all_representative_valid_Xs
 import numpy as np
 import itertools
@@ -169,57 +170,128 @@ def find_global_lower_bound(
 
 def compute_bounds_and_save(
     ns: list[int],
-    metrics: list[str],
+    metric: str,
     eps: float = 1e-6,
     use_networkx: bool = True,
     max_workers: int = 1,
-    output_file: str = "proofs/global_lower_bounds.csv",
+    output_file: str = None,
 ):
     """
-    Compute global lower bounds for multiple n and metrics, saving results to CSV.
+    Compute global lower bounds for multiple n values and a single metric, saving results to CSV.
+    
+    Args:
+        ns: List of n values to compute bounds for
+        metric: Metric name ("tsi" or "qsi")
+        eps: Epsilon for numerical precision
+        use_networkx: Whether to use networkx for topological sorting
+        max_workers: Maximum number of parallel workers
+        output_file: Output file path (if None, will be auto-generated based on metric)
     """
-    file_exists = os.path.isfile(output_file)
+    # Generate output file name based on metric if not provided
+    if output_file is None:
+        output_file = f"proofs/global_lower_bounds_{metric}.csv"
     
     # Header for the CSV
     header = ["n", "metric", "lower_bound", "num_configs", "eps", "time_seconds"]
     
     for n in ns:
-        for metric in metrics:
-            # Check for minimum n requirements per metric
-            if metric == "qsi" and n < 4:
-                print(f"Skipping n={n} for qsi (minimum n=4 required)")
-                continue
-            if metric == "tsi" and n < 3:
-                print(f"Skipping n={n} for tsi (minimum n=3 required)")
-                continue
+        # Check for minimum n requirements per metric
+        if metric == "qsi" and n < 4:
+            print(f"Skipping n={n} for qsi (minimum n=4 required)")
+            continue
+        if metric == "tsi" and n < 3:
+            print(f"Skipping n={n} for tsi (minimum n=3 required)")
+            continue
 
-            print(f"\n{'='*50}")
-            print(f"Computing Global LB for n={n}, metric={metric}")
-            print(f"{'='*50}")
-            
-            lower_bound, num_configs, elapsed_time = find_global_lower_bound(
-                n, metric, eps, use_networkx, max_workers
-            )
-            
-            # Save/Update result immediately
-            mode = 'a' if os.path.isfile(output_file) else 'w'
-            with open(output_file, mode, newline='') as f:
-                writer = csv.writer(f)
-                if mode == 'w':
-                    writer.writerow(header)
-                writer.writerow([n, metric, lower_bound, num_configs, eps, f"{elapsed_time:.2f}"])
-            
-            print(f"Saved result for n={n}, metric={metric} to {output_file}")
+        print(f"\n{'='*50}")
+        print(f"Computing Global LB for n={n}, metric={metric}")
+        print(f"{'='*50}")
+        
+        lower_bound, num_configs, elapsed_time = find_global_lower_bound(
+            n, metric, eps, use_networkx, max_workers
+        )
+        
+        # Save/Update result immediately
+        mode = 'a' if os.path.isfile(output_file) else 'w'
+        with open(output_file, mode, newline='') as f:
+            writer = csv.writer(f)
+            if mode == 'w':
+                writer.writerow(header)
+            writer.writerow([n, metric, lower_bound, num_configs, eps, f"{elapsed_time:.2f}"])
+        
+        print(f"Saved result for n={n}, metric={metric} to {output_file}")
 
 
 if __name__ == "__main__":
-    # Example usage based on instructions
-    ns = [3, 4, 5, 6]
-    metrics = ["tsi", "qsi"]
-    eps = 1e-3
-    use_networkx = True
-    max_workers = os.cpu_count()
+    parser = argparse.ArgumentParser(
+        description='Compute global lower bounds for ordinal similarity metrics.'
+    )
+    parser.add_argument(
+        '--metric',
+        type=str,
+        required=True,
+        choices=['tsi', 'qsi'],
+        help='Metric to compute bounds for: "tsi" or "qsi"'
+    )
+    parser.add_argument(
+        '--ns',
+        type=int,
+        nargs='+',
+        default=[3, 4, 5, 6],
+        help='List of n values to compute bounds for (default: [3, 4, 5, 6])'
+    )
+    parser.add_argument(
+        '--eps',
+        type=float,
+        default=1e-3,
+        help='Epsilon for numerical precision (default: 1e-3)'
+    )
+    parser.add_argument(
+        '--use-networkx',
+        action='store_true',
+        default=True,
+        help='Use networkx for topological sorting (default: True)'
+    )
+    parser.add_argument(
+        '--no-networkx',
+        dest='use_networkx',
+        action='store_false',
+        help='Disable networkx for topological sorting'
+    )
+    parser.add_argument(
+        '--max-workers',
+        type=int,
+        default=None,
+        help='Maximum number of parallel workers (default: number of CPUs)'
+    )
+    parser.add_argument(
+        '--output-file',
+        type=str,
+        default=None,
+        help='Output CSV file path (default: proofs/global_lower_bounds_{metric}.csv)'
+    )
 
-    print(f"Using {max_workers} workers")
+    args = parser.parse_args()
     
-    compute_bounds_and_save(ns, metrics, eps, use_networkx, max_workers)
+    # Set max_workers to CPU count if not specified
+    max_workers = args.max_workers if args.max_workers is not None else os.cpu_count()
+    
+    print(f"Computing global lower bounds for metric: {args.metric}")
+    print(f"n values: {args.ns}")
+    print(f"eps: {args.eps}")
+    print(f"use_networkx: {args.use_networkx}")
+    print(f"max_workers: {max_workers}")
+    
+    output_file = args.output_file
+    if output_file is None:
+        output_file = f"proofs/global_lower_bounds_{args.metric}.csv"
+    print(f"Output file: {output_file}")
+    
+    compute_bounds_and_save(
+        ns=args.ns,
+        metric=args.metric,
+        eps=args.eps,
+        use_networkx=args.use_networkx,
+        max_workers=max_workers,
+        output_file=output_file
+    )
