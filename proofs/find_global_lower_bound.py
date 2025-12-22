@@ -48,7 +48,7 @@ def compute_min_score_for_x1(
     metric_instance = create_metric_instance(metric_name)
     min_score = 1.0
     
-    for X_2 in valid_Xs[idx1 + 1:]:
+    for X_2 in valid_Xs[idx1:]:
         for permutation in itertools.permutations(range(n)):
             X_2_permuted = X_2[np.array(permutation)]
             representation_pair = RepresentationPair(
