@@ -12,6 +12,14 @@ from src.tsi import TSI
 from src.qsi import QSI
 
 
+def get_available_cpus() -> int:
+    """Get the number of CPUs available to this process (cross-platform)."""
+    try:
+        return len(os.sched_getaffinity(0))  # Linux (respects SLURM, cgroups, taskset)
+    except AttributeError:
+        return os.cpu_count()  # macOS, Windows fallback
+
+
 def absolute_distance(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Compute absolute distance between two arrays (picklable for multiprocessing)."""
     return np.abs(x - y)
@@ -273,8 +281,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     
-    # Set max_workers to CPU count if not specified
-    max_workers = args.max_workers if args.max_workers is not None else os.cpu_count()
+    max_workers = args.max_workers if args.max_workers is not None else get_available_cpus()
     
     print(f"Computing global lower bounds for metric: {args.metric}")
     print(f"n values: {args.ns}")
