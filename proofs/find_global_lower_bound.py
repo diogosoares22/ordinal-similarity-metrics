@@ -2,7 +2,11 @@ import os
 import csv
 import time
 import argparse
-from find_all_representative_ordinal_Xs import get_all_representative_valid_Xs
+from find_all_representative_ordinal_Xs import (
+    load_representative_Xs,
+    remove_all_metric_invariant_Xs,
+    REPRESENTATIVE_SETS_DIR,
+)
 import numpy as np
 import itertools
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -10,6 +14,14 @@ from functools import partial
 from src.data import RepresentationPair
 from src.tsi import TSI
 from src.qsi import QSI
+
+
+def get_available_cpus() -> int:
+    """Get the number of CPUs available to this process (cross-platform)."""
+    try:
+        return len(os.sched_getaffinity(0))  # Linux (respects SLURM, cgroups, taskset)
+    except AttributeError:
+        return os.cpu_count()  # macOS, Windows fallback
 
 
 def absolute_distance(x: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -25,6 +37,7 @@ def create_metric_instance(metric_name: str):
         return QSI()
     else:
         raise ValueError(f"Invalid metric: {metric_name}")
+
 
 def compute_min_score_for_x1(
     idx1: int,
@@ -66,25 +79,64 @@ def compute_min_score_for_x1(
     return (idx1, min_score, X_1)
 
 
+def load_and_filter_representative_Xs(
+    n: int,
+    metric: str,
+    eps: float,
+    max_workers: int,
+    input_dir: str = None,
+) -> list[np.ndarray] | None:
+    """
+    Load representative Xs from cache and apply metric-specific filtering.
+    
+    Args:
+        n: Number of points
+        metric: Metric name ("tsi" or "qsi")
+        eps: Epsilon used for numerical precision
+        max_workers: Maximum number of parallel workers
+        input_dir: Directory containing representative sets
+    
+    Returns:
+        List of filtered X configurations, or None if cache file not found
+    """
+    # Load from cache
+    valid_Xs = load_representative_Xs(n, eps, input_dir)
+    
+    if valid_Xs is None:
+        return None
+    
+    # Apply metric-specific invariant removal
+    print(f"Applying {metric}-specific invariant removal...")
+    filtered_Xs = remove_all_metric_invariant_Xs(valid_Xs, metric, max_workers=max_workers)
+    
+    return filtered_Xs
+
+
 def find_global_lower_bound(
     n: int,
     metric: str = "tsi",
     eps: float = 1e-6,
-    use_networkx: bool = True,
     max_workers: int = 1,
+    representative_sets_dir: str = None,
 ) -> tuple[float, int, float]:
     """
     Find the global lower bound for the given metric.
+    
+    This function loads pre-computed representative sets from the cache,
+    applies metric-specific filtering, and then computes the global lower bound.
     
     Args:
         n: Number of points
         metric: Metric name ("tsi" or "qsi")
         eps: Epsilon for numerical precision
-        use_networkx: Whether to use networkx for topological sorting
         max_workers: Maximum number of parallel workers
+        representative_sets_dir: Directory containing representative sets
     
     Returns:
         Tuple of (lowest score, number of configurations, elapsed time)
+    
+    Raises:
+        FileNotFoundError: If the representative set file doesn't exist
     """
     if metric == "qsi" and n < 4:
         raise ValueError("QSI requires n >= 4 points.")
@@ -92,9 +144,20 @@ def find_global_lower_bound(
         raise ValueError("TSI requires n >= 3 points.")
 
     start_time = time.time()
-    valid_Xs = get_all_representative_valid_Xs(
-        n, eps=eps, use_networkx=use_networkx, metric=metric, max_workers=max_workers
+    
+    # Load and filter representative Xs
+    valid_Xs = load_and_filter_representative_Xs(
+        n, metric, eps, max_workers, representative_sets_dir
     )
+    
+    if valid_Xs is None:
+        input_dir = representative_sets_dir or REPRESENTATIVE_SETS_DIR
+        raise FileNotFoundError(
+            f"Representative set not found for n={n}, eps={eps}. "
+            f"Please run 'python find_all_representative_ordinal_Xs.py --ns {n} --eps {eps}' first "
+            f"to generate the representative set in {input_dir}."
+        )
+    
     num_configs = len(valid_Xs)
     print(f"Found {num_configs} valid X configurations for n={n}, metric={metric}")
     
@@ -172,20 +235,23 @@ def compute_bounds_and_save(
     ns: list[int],
     metric: str,
     eps: float = 1e-6,
-    use_networkx: bool = True,
     max_workers: int = 1,
     output_file: str = None,
+    representative_sets_dir: str = None,
 ):
     """
     Compute global lower bounds for multiple n values and a single metric, saving results to CSV.
+    
+    This function expects pre-computed representative sets to exist. If they don't,
+    run find_all_representative_ordinal_Xs.py first to generate them.
     
     Args:
         ns: List of n values to compute bounds for
         metric: Metric name ("tsi" or "qsi")
         eps: Epsilon for numerical precision
-        use_networkx: Whether to use networkx for topological sorting
         max_workers: Maximum number of parallel workers
         output_file: Output file path (if None, will be auto-generated based on metric)
+        representative_sets_dir: Directory containing representative sets
     """
     # Generate output file name based on metric if not provided
     if output_file is None:
@@ -207,9 +273,14 @@ def compute_bounds_and_save(
         print(f"Computing Global LB for n={n}, metric={metric}")
         print(f"{'='*50}")
         
-        lower_bound, num_configs, elapsed_time = find_global_lower_bound(
-            n, metric, eps, use_networkx, max_workers
-        )
+        try:
+            lower_bound, num_configs, elapsed_time = find_global_lower_bound(
+                n, metric, eps, max_workers, representative_sets_dir
+            )
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+            print(f"Skipping n={n}")
+            continue
         
         # Save/Update result immediately
         mode = 'a' if os.path.isfile(output_file) else 'w'
@@ -224,7 +295,8 @@ def compute_bounds_and_save(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Compute global lower bounds for ordinal similarity metrics.'
+        description='Compute global lower bounds for ordinal similarity metrics. '
+                    'Requires pre-computed representative sets (run find_all_representative_ordinal_Xs.py first).'
     )
     parser.add_argument(
         '--metric',
@@ -247,18 +319,6 @@ if __name__ == "__main__":
         help='Epsilon for numerical precision (default: 1e-3)'
     )
     parser.add_argument(
-        '--use-networkx',
-        action='store_true',
-        default=True,
-        help='Use networkx for topological sorting (default: True)'
-    )
-    parser.add_argument(
-        '--no-networkx',
-        dest='use_networkx',
-        action='store_false',
-        help='Disable networkx for topological sorting'
-    )
-    parser.add_argument(
         '--max-workers',
         type=int,
         default=None,
@@ -270,16 +330,20 @@ if __name__ == "__main__":
         default=None,
         help='Output CSV file path (default: proofs/global_lower_bounds_{metric}.csv)'
     )
+    parser.add_argument(
+        '--representative-sets-dir',
+        type=str,
+        default=None,
+        help=f'Directory containing representative sets (default: {REPRESENTATIVE_SETS_DIR})'
+    )
 
     args = parser.parse_args()
     
-    # Set max_workers to CPU count if not specified
-    max_workers = args.max_workers if args.max_workers is not None else os.cpu_count()
+    max_workers = args.max_workers if args.max_workers is not None else get_available_cpus()
     
     print(f"Computing global lower bounds for metric: {args.metric}")
     print(f"n values: {args.ns}")
     print(f"eps: {args.eps}")
-    print(f"use_networkx: {args.use_networkx}")
     print(f"max_workers: {max_workers}")
     
     output_file = args.output_file
@@ -287,11 +351,14 @@ if __name__ == "__main__":
         output_file = f"proofs/global_lower_bounds_{args.metric}.csv"
     print(f"Output file: {output_file}")
     
+    representative_sets_dir = args.representative_sets_dir or REPRESENTATIVE_SETS_DIR
+    print(f"Representative sets directory: {representative_sets_dir}")
+    
     compute_bounds_and_save(
         ns=args.ns,
         metric=args.metric,
         eps=args.eps,
-        use_networkx=args.use_networkx,
         max_workers=max_workers,
-        output_file=output_file
+        output_file=output_file,
+        representative_sets_dir=representative_sets_dir,
     )

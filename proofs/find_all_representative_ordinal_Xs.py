@@ -1,14 +1,27 @@
+import os
 import time
+import argparse
 from scipy.optimize import linprog
 import numpy as np
 import itertools
-import math
 import networkx as nx
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 from src.tsi import TSI
 from src.qsi import QSI
 from src.data import RepresentationPair
+
+
+# Default directory for storing representative sets
+REPRESENTATIVE_SETS_DIR = "proofs/representative_sets"
+
+
+def get_available_cpus() -> int:
+    """Get the number of CPUs available to this process (cross-platform)."""
+    try:
+        return len(os.sched_getaffinity(0))  # Linux (respects SLURM, cgroups, taskset)
+    except AttributeError:
+        return os.cpu_count()  # macOS, Windows fallback
 
 
 def index_to_variables(i: int, j: int, n: int) -> int:
@@ -260,25 +273,109 @@ def process_single_ordering(
     return valid_distances
 
 
-def get_all_representative_valid_Xs(
+def get_representative_set_filepath(n: int, eps: float, output_dir: str = None) -> str:
+    """
+    Get the filepath for storing/loading representative sets.
+    
+    Args:
+        n: Number of points
+        eps: Epsilon for numerical precision
+        output_dir: Output directory (defaults to REPRESENTATIVE_SETS_DIR)
+    
+    Returns:
+        Filepath string
+    """
+    if output_dir is None:
+        output_dir = REPRESENTATIVE_SETS_DIR
+    # Format eps for filename (e.g., 1e-3 -> "1e-3", 0.001 -> "0.001")
+    eps_str = f"{eps:.0e}" if eps < 0.01 else f"{eps}"
+    return os.path.join(output_dir, f"representative_Xs_n{n}_eps{eps_str}.npy")
+
+
+def save_representative_Xs(
+    Xs: list,
+    n: int,
+    eps: float,
+    output_dir: str = None,
+) -> str:
+    """
+    Save representative X configurations to a file.
+    
+    Args:
+        Xs: List of X configurations (numpy arrays)
+        n: Number of points
+        eps: Epsilon used for numerical precision
+        output_dir: Output directory (defaults to REPRESENTATIVE_SETS_DIR)
+    
+    Returns:
+        Path to the saved file
+    """
+    if output_dir is None:
+        output_dir = REPRESENTATIVE_SETS_DIR
+    
+    # Create directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    filepath = get_representative_set_filepath(n, eps, output_dir)
+    
+    # Convert to numpy array and save
+    Xs_array = np.array([np.array(x) for x in Xs])
+    np.save(filepath, Xs_array)
+    
+    print(f"Saved {len(Xs)} representative X configurations to {filepath}")
+    return filepath
+
+
+def load_representative_Xs(
+    n: int,
+    eps: float,
+    input_dir: str = None,
+) -> list[np.ndarray] | None:
+    """
+    Load representative X configurations from a file.
+    
+    Args:
+        n: Number of points
+        eps: Epsilon used for numerical precision
+        input_dir: Input directory (defaults to REPRESENTATIVE_SETS_DIR)
+    
+    Returns:
+        List of X configurations as numpy arrays, or None if file doesn't exist
+    """
+    if input_dir is None:
+        input_dir = REPRESENTATIVE_SETS_DIR
+    
+    filepath = get_representative_set_filepath(n, eps, input_dir)
+    
+    if not os.path.exists(filepath):
+        print(f"Representative set file not found: {filepath}")
+        return None
+    
+    Xs_array = np.load(filepath)
+    Xs_list = [Xs_array[i] for i in range(len(Xs_array))]
+    
+    print(f"Loaded {len(Xs_list)} representative X configurations from {filepath}")
+    return Xs_list
+
+
+def get_all_valid_Xs_before_metric_removal(
     n: int,
     eps: float = 1e-6,
     use_networkx: bool = True,
-    metric: str = "tsi",
     max_workers: int | None = None,
 ) -> list:
     """
-    Find all representative valid X configurations.
-
+    Find all valid X configurations BEFORE metric-invariant removal.
+    This is the metric-agnostic part of the computation.
+    
     Args:
         n: Number of points
         eps: Epsilon for numerical precision
         use_networkx: Whether to use networkx for topological sorting
-        metric: Metric to use for removing invariant Xs ("tsi" or "qsi")
         max_workers: Maximum number of parallel workers (None = number of CPUs)
-
+    
     Returns:
-        List of representative unique X configurations
+        List of valid X configurations (before metric-specific filtering)
     """
     variables = (n * (n - 1)) // 2
 
@@ -331,13 +428,165 @@ def get_all_representative_valid_Xs(
 
     print(f"\nCompleted processing orderings in {time.time() - start_time:.1f}s.")
 
-    # Convert distances to X configurations and filter
-    representative_valid_Xs = [
+    # Convert distances to X configurations and adjust
+    valid_Xs = [
         distances_to_X(distance_vector, n) for distance_vector in valid_distances
     ]
-    adjusted_representative_valid_Xs = adjust_to_nearest_eps(representative_valid_Xs, eps)
+    adjusted_valid_Xs = adjust_to_nearest_eps(valid_Xs, eps)
+
+    return adjusted_valid_Xs
+
+
+def generate_and_save_representative_set(
+    n: int,
+    eps: float = 1e-6,
+    use_networkx: bool = True,
+    max_workers: int | None = None,
+    output_dir: str = None,
+) -> str:
+    """
+    Generate representative X configurations and save them to a file.
+    This is the metric-agnostic part that can be reused for different metrics.
+    
+    Args:
+        n: Number of points
+        eps: Epsilon for numerical precision
+        use_networkx: Whether to use networkx for topological sorting
+        max_workers: Maximum number of parallel workers (None = number of CPUs)
+        output_dir: Output directory (defaults to REPRESENTATIVE_SETS_DIR)
+    
+    Returns:
+        Path to the saved file
+    """
+    print(f"\n{'='*50}")
+    print(f"Generating representative set for n={n}, eps={eps}")
+    print(f"{'='*50}")
+    
+    start_time = time.time()
+    
+    valid_Xs = get_all_valid_Xs_before_metric_removal(
+        n, eps=eps, use_networkx=use_networkx, max_workers=max_workers
+    )
+    
+    filepath = save_representative_Xs(valid_Xs, n, eps, output_dir)
+    
+    elapsed = time.time() - start_time
+    print(f"Total time for n={n}: {elapsed:.1f}s")
+    
+    return filepath
+
+
+def get_all_representative_valid_Xs(
+    n: int,
+    eps: float = 1e-6,
+    use_networkx: bool = True,
+    metric: str = "tsi",
+    max_workers: int | None = None,
+    use_cache: bool = True,
+    cache_dir: str = None,
+) -> list:
+    """
+    Find all representative valid X configurations.
+    
+    This function will:
+    1. Try to load pre-computed representative sets from cache (if use_cache=True)
+    2. If not found, compute the metric-agnostic valid Xs
+    3. Apply metric-specific invariant removal
+    
+    Args:
+        n: Number of points
+        eps: Epsilon for numerical precision
+        use_networkx: Whether to use networkx for topological sorting
+        metric: Metric to use for removing invariant Xs ("tsi" or "qsi")
+        max_workers: Maximum number of parallel workers (None = number of CPUs)
+        use_cache: Whether to try loading from cache first
+        cache_dir: Directory for cached representative sets
+
+    Returns:
+        List of representative unique X configurations
+    """
+    # Try to load from cache
+    valid_Xs = None
+    if use_cache:
+        valid_Xs = load_representative_Xs(n, eps, cache_dir)
+    
+    # If not in cache, compute from scratch
+    if valid_Xs is None:
+        valid_Xs = get_all_valid_Xs_before_metric_removal(
+            n, eps=eps, use_networkx=use_networkx, max_workers=max_workers
+        )
+    
+    # Apply metric-specific invariant removal
     representative_unique_Xs = remove_all_metric_invariant_Xs(
-        adjusted_representative_valid_Xs, metric, max_workers=max_workers
+        valid_Xs, metric, max_workers=max_workers
     )
 
     return representative_unique_Xs
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description='Generate and save representative ordinal X configurations.'
+    )
+    parser.add_argument(
+        '--ns',
+        type=int,
+        nargs='+',
+        default=[3, 4, 5, 6],
+        help='List of n values to generate representative sets for (default: [3, 4, 5, 6])'
+    )
+    parser.add_argument(
+        '--eps',
+        type=float,
+        default=1e-3,
+        help='Epsilon for numerical precision (default: 1e-3)'
+    )
+    parser.add_argument(
+        '--use-networkx',
+        action='store_true',
+        default=True,
+        help='Use networkx for topological sorting (default: True)'
+    )
+    parser.add_argument(
+        '--no-networkx',
+        dest='use_networkx',
+        action='store_false',
+        help='Disable networkx for topological sorting'
+    )
+    parser.add_argument(
+        '--max-workers',
+        type=int,
+        default=None,
+        help='Maximum number of parallel workers (default: number of CPUs)'
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default=None,
+        help=f'Output directory for representative sets (default: {REPRESENTATIVE_SETS_DIR})'
+    )
+
+    args = parser.parse_args()
+    
+    max_workers = args.max_workers if args.max_workers is not None else get_available_cpus()
+    output_dir = args.output_dir if args.output_dir is not None else REPRESENTATIVE_SETS_DIR
+    
+    print(f"Generating representative sets")
+    print(f"n values: {args.ns}")
+    print(f"eps: {args.eps}")
+    print(f"use_networkx: {args.use_networkx}")
+    print(f"max_workers: {max_workers}")
+    print(f"output_dir: {output_dir}")
+    
+    for n in args.ns:
+        generate_and_save_representative_set(
+            n=n,
+            eps=args.eps,
+            use_networkx=args.use_networkx,
+            max_workers=max_workers,
+            output_dir=output_dir,
+        )
+    
+    print(f"\n{'='*50}")
+    print("All representative sets generated successfully!")
+    print(f"{'='*50}")
