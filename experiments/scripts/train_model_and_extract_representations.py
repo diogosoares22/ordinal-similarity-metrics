@@ -31,13 +31,13 @@ from models.vit import ViT_CIFAR10, ViT_CIFAR100
 from models.resnet import ResNet50_CIFAR10, ResNet50_CIFAR100
 
 
-def compute_average_pairwise_euclidean_distance(representations, n_samples=10000, seed=42):
+def compute_pairwise_euclidean_distance_stats(representations, n_samples=10000, seed=42):
     """
-    Compute the average pairwise Euclidean distance for a set of representations.
+    Compute min, max, and average pairwise Euclidean distance for a set of representations.
     
-    Uses sampling to efficiently estimate the average for large datasets.
+    Uses sampling to efficiently estimate statistics for large datasets.
     For n points, there are n*(n-1)/2 unique pairs. We sample n_samples pairs
-    to estimate the average distance.
+    to estimate the statistics.
     
     Args:
         representations: numpy array of shape (N, D) where N is number of points
@@ -45,14 +45,14 @@ def compute_average_pairwise_euclidean_distance(representations, n_samples=10000
         seed: random seed for reproducibility
     
     Returns:
-        Average pairwise Euclidean distance (float)
+        dict with keys 'min', 'max', 'avg' containing the respective statistics
     """
     n_points = representations.shape[0]
     
     # Set random seed for reproducibility
     rng = np.random.RandomState(seed)
     
-    # For small datasets, compute exact average
+    # For small datasets, compute exact statistics
     max_exact_pairs = n_samples
     total_pairs = n_points * (n_points - 1) // 2
     
@@ -65,7 +65,8 @@ def compute_average_pairwise_euclidean_distance(representations, n_samples=10000
             diffs = representations[i+1:] - representations[i]
             dists = np.linalg.norm(diffs, axis=1)
             distances.extend(dists)
-        return np.mean(distances)
+        distances = np.array(distances)
+        return {'min': np.min(distances), 'max': np.max(distances), 'avg': np.mean(distances)}
     
     # For large datasets, sample random pairs
     # Generate random indices for pairs
@@ -82,7 +83,7 @@ def compute_average_pairwise_euclidean_distance(representations, n_samples=10000
     diffs = representations[idx1] - representations[idx2]
     distances = np.linalg.norm(diffs, axis=1)
     
-    return np.mean(distances)
+    return {'min': np.min(distances), 'max': np.max(distances), 'avg': np.mean(distances)}
 
 
 def seed_everything(seed: int):
@@ -432,20 +433,22 @@ def main():
     )
     epoch_representations[-1] = representations
     
-    # Compute average pairwise euclidean distance for test set
-    test_avg_dist = compute_average_pairwise_euclidean_distance(representations)
-    print(f"Test set AveragePairwiseEuclideanDistance: {test_avg_dist:.4f}")
+    # Compute pairwise euclidean distance stats for test set
+    real_dist_stats = compute_pairwise_euclidean_distance_stats(representations)
     
     # Extract corrupted representations if available
-    corrupted_avg_dist = None
+    corrupted_dist_stats = None
+    combined_dist_stats = None
     if corrupted_loader:
         corrupted_repr, _, _, _ = extract_representations(
             net, corrupted_loader, criterion, device, compute_acc=False
         )
         epoch_corrupted_representations[-1] = corrupted_repr
-        corrupted_avg_dist = compute_average_pairwise_euclidean_distance(corrupted_repr)
-        print(f"Extracted {corrupted_repr.shape[0]} corrupted representations")
-        print(f"Corrupted set AveragePairwiseEuclideanDistance: {corrupted_avg_dist:.4f}")
+        corrupted_dist_stats = compute_pairwise_euclidean_distance_stats(corrupted_repr)
+        
+        # Compute pairwise distance stats for combined real + corrupted
+        combined_repr = np.concatenate([representations, corrupted_repr], axis=0)
+        combined_dist_stats = compute_pairwise_euclidean_distance_stats(combined_repr)
     
     log_dict = {
         "epoch": -1, 
@@ -454,10 +457,18 @@ def main():
         "lr": optimizer.param_groups[0]["lr"],
         "epoch_time": time.time() - start,
         "latent_shape": latent_shape,
-        "test_avg_pairwise_euclidean_dist": test_avg_dist,
+        "real_pairwise_euclidean_dist_min": real_dist_stats['min'],
+        "real_pairwise_euclidean_dist_max": real_dist_stats['max'],
+        "real_pairwise_euclidean_dist_avg": real_dist_stats['avg'],
     }
-    if corrupted_avg_dist is not None:
-        log_dict["corrupted_avg_pairwise_euclidean_dist"] = corrupted_avg_dist
+    if corrupted_dist_stats is not None:
+        log_dict["corrupted_pairwise_euclidean_dist_min"] = corrupted_dist_stats['min']
+        log_dict["corrupted_pairwise_euclidean_dist_max"] = corrupted_dist_stats['max']
+        log_dict["corrupted_pairwise_euclidean_dist_avg"] = corrupted_dist_stats['avg']
+    if combined_dist_stats is not None:
+        log_dict["real_and_corrupted_pairwise_euclidean_dist_min"] = combined_dist_stats['min']
+        log_dict["real_and_corrupted_pairwise_euclidean_dist_max"] = combined_dist_stats['max']
+        log_dict["real_and_corrupted_pairwise_euclidean_dist_avg"] = combined_dist_stats['avg']
     training_logs.append(log_dict)
     print(f"Epoch -1: Val Loss: {val_loss:.4f}, Val Acc: {acc:.2f}%")
     
@@ -477,17 +488,22 @@ def main():
         )
         epoch_representations[epoch] = representations
         
-        # Compute average pairwise euclidean distance for test set
-        test_avg_dist = compute_average_pairwise_euclidean_distance(representations)
+        # Compute pairwise euclidean distance stats for test set
+        real_dist_stats = compute_pairwise_euclidean_distance_stats(representations)
         
         # Extract corrupted representations if available
-        corrupted_avg_dist = None
+        corrupted_dist_stats = None
+        combined_dist_stats = None
         if corrupted_loader:
             corrupted_repr, _, _, _ = extract_representations(
                 net, corrupted_loader, criterion, device, compute_acc=False
             )
             epoch_corrupted_representations[epoch] = corrupted_repr
-            corrupted_avg_dist = compute_average_pairwise_euclidean_distance(corrupted_repr)
+            corrupted_dist_stats = compute_pairwise_euclidean_distance_stats(corrupted_repr)
+            
+            # Compute pairwise distance stats for combined real + corrupted
+            combined_repr = np.concatenate([representations, corrupted_repr], axis=0)
+            combined_dist_stats = compute_pairwise_euclidean_distance_stats(combined_repr)
         
         scheduler.step()
         
@@ -500,12 +516,20 @@ def main():
             "lr": optimizer.param_groups[0]["lr"],
             "epoch_time": time.time() - start,
             "latent_shape": latent_shape,
-            "test_avg_pairwise_euclidean_dist": test_avg_dist,
+            "real_pairwise_euclidean_dist_min": real_dist_stats['min'],
+            "real_pairwise_euclidean_dist_max": real_dist_stats['max'],
+            "real_pairwise_euclidean_dist_avg": real_dist_stats['avg'],
         }
-        if corrupted_avg_dist is not None:
-            log_dict["corrupted_avg_pairwise_euclidean_dist"] = corrupted_avg_dist
+        if corrupted_dist_stats is not None:
+            log_dict["corrupted_pairwise_euclidean_dist_min"] = corrupted_dist_stats['min']
+            log_dict["corrupted_pairwise_euclidean_dist_max"] = corrupted_dist_stats['max']
+            log_dict["corrupted_pairwise_euclidean_dist_avg"] = corrupted_dist_stats['avg']
+        if combined_dist_stats is not None:
+            log_dict["real_and_corrupted_pairwise_euclidean_dist_min"] = combined_dist_stats['min']
+            log_dict["real_and_corrupted_pairwise_euclidean_dist_max"] = combined_dist_stats['max']
+            log_dict["real_and_corrupted_pairwise_euclidean_dist_avg"] = combined_dist_stats['avg']
         training_logs.append(log_dict)
-        print(f"Epoch {epoch}: Train Loss: {trainloss:.4f}, Val Loss: {val_loss:.4f}, Val Acc: {acc:.2f}%, Test AvgDist: {test_avg_dist:.4f}")
+        print(f"Epoch {epoch}: Train Loss: {trainloss:.4f}, Val Loss: {val_loss:.4f}, Val Acc: {acc:.2f}%, Real AvgDist: {real_dist_stats['avg']:.4f}")
         
         if usewandb:
             wandb.log(log_dict)
