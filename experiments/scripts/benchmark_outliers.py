@@ -19,6 +19,8 @@ from src.baselines import run_baseline_measures
 from src.tsi import EfficientTSI
 from src.qsi import EfficientQSI
 from src.data import RepresentationPair
+from src.local_baselines_helper import cknna_euclidean, mutual_knn_euclidean
+import torch
 
 
 # Path to CIFAR-10 representations
@@ -193,7 +195,12 @@ def benchmark_qsi(X: np.ndarray, Y: np.ndarray) -> tuple[float, float]:
 
 def benchmark_baselines(X: np.ndarray, Y: np.ndarray) -> dict:
     """Benchmark baseline measures computation time."""
-    return run_baseline_measures(X, Y, time_monitor=True)
+    baseline_results = run_baseline_measures(X, Y, time_monitor=True)
+    X_torch = torch.from_numpy(X)
+    Y_torch = torch.from_numpy(Y)
+    baseline_results['CKNNA-Euclidean'] = (cknna_euclidean(X_torch, Y_torch), 0)
+    baseline_results['MutualNN-Euclidean'] = (mutual_knn_euclidean(X_torch, Y_torch), 0)
+    return baseline_results
 
 
 def run_sigma_experiment(args, data_source: str):
