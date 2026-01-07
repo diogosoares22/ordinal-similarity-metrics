@@ -2,10 +2,9 @@ import os
 import csv
 import time
 import argparse
-from find_all_representative_ordinal_Xs import (
-    load_representative_Xs,
-    remove_all_metric_invariant_Xs,
-    REPRESENTATIVE_SETS_DIR,
+from remove_metric_invariant_representatives import (
+    load_metric_filtered_Xs,
+    METRIC_FILTERED_SETS_DIR,
 )
 import numpy as np
 import itertools
@@ -79,37 +78,25 @@ def compute_min_score_for_x1(
     return (idx1, min_score, X_1)
 
 
-def load_and_filter_representative_Xs(
+def load_metric_filtered_representative_Xs(
     n: int,
     metric: str,
     eps: float,
-    max_workers: int,
     input_dir: str = None,
 ) -> list[np.ndarray] | None:
     """
-    Load representative Xs from cache and apply metric-specific filtering.
+    Load pre-computed metric-filtered representative Xs.
     
     Args:
         n: Number of points
         metric: Metric name ("tsi" or "qsi")
         eps: Epsilon used for numerical precision
-        max_workers: Maximum number of parallel workers
-        input_dir: Directory containing representative sets
+        input_dir: Directory containing metric-filtered representative sets
     
     Returns:
         List of filtered X configurations, or None if cache file not found
     """
-    # Load from cache
-    valid_Xs = load_representative_Xs(n, eps, input_dir)
-    
-    if valid_Xs is None:
-        return None
-    
-    # Apply metric-specific invariant removal
-    print(f"Applying {metric}-specific invariant removal...")
-    filtered_Xs = remove_all_metric_invariant_Xs(valid_Xs, metric, max_workers=max_workers)
-    
-    return filtered_Xs
+    return load_metric_filtered_Xs(n, eps, metric, input_dir)
 
 
 def find_global_lower_bound(
@@ -117,26 +104,26 @@ def find_global_lower_bound(
     metric: str = "tsi",
     eps: float = 1e-6,
     max_workers: int = 1,
-    representative_sets_dir: str = None,
+    metric_filtered_sets_dir: str = None,
 ) -> tuple[float, int, float]:
     """
     Find the global lower bound for the given metric.
     
-    This function loads pre-computed representative sets from the cache,
-    applies metric-specific filtering, and then computes the global lower bound.
+    This function loads pre-computed metric-filtered representative sets
+    and computes the global lower bound.
     
     Args:
         n: Number of points
         metric: Metric name ("tsi" or "qsi")
         eps: Epsilon for numerical precision
         max_workers: Maximum number of parallel workers
-        representative_sets_dir: Directory containing representative sets
+        metric_filtered_sets_dir: Directory containing metric-filtered representative sets
     
     Returns:
         Tuple of (lowest score, number of configurations, elapsed time)
     
     Raises:
-        FileNotFoundError: If the representative set file doesn't exist
+        FileNotFoundError: If the metric-filtered representative set file doesn't exist
     """
     if metric == "qsi" and n < 4:
         raise ValueError("QSI requires n >= 4 points.")
@@ -145,17 +132,17 @@ def find_global_lower_bound(
 
     start_time = time.time()
     
-    # Load and filter representative Xs
-    valid_Xs = load_and_filter_representative_Xs(
-        n, metric, eps, max_workers, representative_sets_dir
+    # Load pre-computed metric-filtered representative Xs
+    valid_Xs = load_metric_filtered_representative_Xs(
+        n, metric, eps, metric_filtered_sets_dir
     )
     
     if valid_Xs is None:
-        input_dir = representative_sets_dir or REPRESENTATIVE_SETS_DIR
+        input_dir = metric_filtered_sets_dir or METRIC_FILTERED_SETS_DIR
         raise FileNotFoundError(
-            f"Representative set not found for n={n}, eps={eps}. "
-            f"Please run 'python find_all_representative_ordinal_Xs.py --ns {n} --eps {eps}' first "
-            f"to generate the representative set in {input_dir}."
+            f"Metric-filtered representative set not found for n={n}, metric={metric}, eps={eps}. "
+            f"Please run 'python remove_metric_invariant_representatives.py --metric {metric} --ns {n} --eps {eps}' first "
+            f"to generate the filtered set in {input_dir}/{metric}/."
         )
     
     num_configs = len(valid_Xs)
@@ -237,13 +224,13 @@ def compute_bounds_and_save(
     eps: float = 1e-6,
     max_workers: int = 1,
     output_file: str = None,
-    representative_sets_dir: str = None,
+    metric_filtered_sets_dir: str = None,
 ):
     """
     Compute global lower bounds for multiple n values and a single metric, saving results to CSV.
     
-    This function expects pre-computed representative sets to exist. If they don't,
-    run find_all_representative_ordinal_Xs.py first to generate them.
+    This function expects pre-computed metric-filtered representative sets to exist.
+    Run remove_metric_invariant_representatives.py first to generate them.
     
     Args:
         ns: List of n values to compute bounds for
@@ -251,7 +238,7 @@ def compute_bounds_and_save(
         eps: Epsilon for numerical precision
         max_workers: Maximum number of parallel workers
         output_file: Output file path (if None, will be auto-generated based on metric)
-        representative_sets_dir: Directory containing representative sets
+        metric_filtered_sets_dir: Directory containing metric-filtered representative sets
     """
     # Generate output file name based on metric if not provided
     if output_file is None:
@@ -275,7 +262,7 @@ def compute_bounds_and_save(
         
         try:
             lower_bound, num_configs, elapsed_time = find_global_lower_bound(
-                n, metric, eps, max_workers, representative_sets_dir
+                n, metric, eps, max_workers, metric_filtered_sets_dir
             )
         except FileNotFoundError as e:
             print(f"Error: {e}")
@@ -296,7 +283,8 @@ def compute_bounds_and_save(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Compute global lower bounds for ordinal similarity metrics. '
-                    'Requires pre-computed representative sets (run find_all_representative_ordinal_Xs.py first).'
+                    'Requires pre-computed metric-filtered representative sets '
+                    '(run remove_metric_invariant_representatives.py first).'
     )
     parser.add_argument(
         '--metric',
@@ -331,10 +319,10 @@ if __name__ == "__main__":
         help='Output CSV file path (default: proofs/global_lower_bounds_{metric}.csv)'
     )
     parser.add_argument(
-        '--representative-sets-dir',
+        '--metric-filtered-sets-dir',
         type=str,
         default=None,
-        help=f'Directory containing representative sets (default: {REPRESENTATIVE_SETS_DIR})'
+        help=f'Directory containing metric-filtered representative sets (default: {METRIC_FILTERED_SETS_DIR})'
     )
 
     args = parser.parse_args()
@@ -351,8 +339,8 @@ if __name__ == "__main__":
         output_file = f"proofs/global_lower_bounds_{args.metric}.csv"
     print(f"Output file: {output_file}")
     
-    representative_sets_dir = args.representative_sets_dir or REPRESENTATIVE_SETS_DIR
-    print(f"Representative sets directory: {representative_sets_dir}")
+    metric_filtered_sets_dir = args.metric_filtered_sets_dir or METRIC_FILTERED_SETS_DIR
+    print(f"Metric-filtered sets directory: {metric_filtered_sets_dir}")
     
     compute_bounds_and_save(
         ns=args.ns,
@@ -360,5 +348,5 @@ if __name__ == "__main__":
         eps=args.eps,
         max_workers=max_workers,
         output_file=output_file,
-        representative_sets_dir=representative_sets_dir,
+        metric_filtered_sets_dir=metric_filtered_sets_dir,
     )
