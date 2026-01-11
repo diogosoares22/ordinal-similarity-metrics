@@ -165,12 +165,12 @@ def find_global_lower_bound(
     )
     
     # Process all X_1 indices in parallel
-    indices = range(len(valid_Xs_arrays) - 1)  # -1 because last X has no subsequent X
+    indices = range(len(valid_Xs_arrays))
     num_tasks = len(indices)
     lowest_score = 1.0
     
     # Work estimation: Task i compares against (len - 1 - i) subsequent configs
-    total_work = sum(len(valid_Xs_arrays) - 1 - i for i in indices)
+    total_work = sum(len(valid_Xs_arrays) - i for i in indices)
     work_done = 0
     completed = 0
     
