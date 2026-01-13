@@ -252,7 +252,7 @@ def main():
         print(f"Loaded data for batch_size={bs}: {approx_path}")
 
     # Plot setup
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(23, 7), sharey=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(32, 7), sharey=True)
     
     # Colors and styling
     colors = plt.cm.Dark2.colors

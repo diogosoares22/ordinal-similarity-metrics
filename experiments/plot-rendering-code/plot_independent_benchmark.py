@@ -65,7 +65,7 @@ def create_combined_plot(df: pd.DataFrame, score_columns: list, measure_names: d
         return
     
     # Create figure with two subplots sharing y-axis
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(23, 7), sharey=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(32, 7), sharey=True)
     
     # Use logarithmic x-axis for both subplots (base 2 aligns with multiplicative factor 2)
     ax1.set_xscale('log', base=2)

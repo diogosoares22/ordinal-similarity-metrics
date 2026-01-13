@@ -19,13 +19,13 @@ import re
 # Set style for scientific publication
 plt.style.use('seaborn-v0_8-paper')
 plt.rcParams['font.family'] = 'serif'
-plt.rcParams['font.size'] = 22
-plt.rcParams['axes.labelsize'] = 24
-plt.rcParams['axes.titlesize'] = 24
-plt.rcParams['xtick.labelsize'] = 20
-plt.rcParams['ytick.labelsize'] = 20
-plt.rcParams['legend.fontsize'] = 20
-plt.rcParams['figure.titlesize'] = 26
+plt.rcParams['font.size'] = 28
+plt.rcParams['axes.labelsize'] = 30
+plt.rcParams['axes.titlesize'] = 30
+plt.rcParams['xtick.labelsize'] = 28
+plt.rcParams['ytick.labelsize'] = 28
+plt.rcParams['legend.fontsize'] = 32
+plt.rcParams['figure.titlesize'] = 30
 
 # Color scheme for same-seed vs distinct-seed
 COLORS = {
@@ -154,8 +154,8 @@ def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame
     """
     n_metrics = len(metrics)
     
-    # Create figure with shared x-axis
-    fig, axes = plt.subplots(n_metrics, 1, figsize=(6, 4 * n_metrics), sharex=True)
+    # Create figure with shared y-axis (now horizontal)
+    fig, axes = plt.subplots(1, n_metrics, figsize=(32, 7), sharey=True)
     
     # Ensure axes is always a list
     if n_metrics == 1:
@@ -167,9 +167,6 @@ def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame
         max_epoch = max(max_epoch, same_seed_df['epoch'].max())
     if not cross_seed_df.empty:
         max_epoch = max(max_epoch, cross_seed_df['epoch'].max())
-    
-    # Legend handles (shared across all subplots)
-    shared_legend_handles = []
     
     for idx, (ax, metric) in enumerate(zip(axes, metrics)):
         metric_short = METRIC_DISPLAY.get(metric, metric)
@@ -183,7 +180,7 @@ def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame
             # Plot line
             ax.plot(epochs, same_mean,
                     linestyle='-',
-                    linewidth=4,
+                    linewidth=5.6,
                     color=colors['same'],
                     alpha=0.9,
                     zorder=2)
@@ -199,24 +196,12 @@ def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame
             ax.plot(epochs, same_mean,
                     marker='o',
                     linestyle='',
-                    markersize=12,
+                    markersize=28,
                     color=colors['same'],
-                    markeredgewidth=1.5, 
+                    markeredgewidth=2.8, 
                     markeredgecolor='white',
                     markevery=markevery, 
                     zorder=10)
-            
-            # Only add legend handle once (from first subplot)
-            if idx == 0:
-                shared_legend_handles.append(Line2D([0], [0],
-                                         color=colors['same'],
-                                         linestyle='-',
-                                         linewidth=3,
-                                         marker='o',
-                                         markersize=8,
-                                         markeredgewidth=1.5,
-                                         markeredgecolor='white',
-                                         label='Same Seed'))
         
         # Plot distinct-seed convergence
         if not cross_seed_df.empty and metric in cross_seed_df.columns:
@@ -226,7 +211,7 @@ def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame
             # Plot line
             ax.plot(epochs, cross_mean,
                     linestyle='--',
-                    linewidth=4,
+                    linewidth=5.6,
                     color=colors['distinct'],
                     alpha=0.9,
                     zorder=2)
@@ -242,28 +227,24 @@ def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame
             ax.plot(epochs, cross_mean,
                     marker='s',
                     linestyle='',
-                    markersize=12,
+                    markersize=28,
                     color=colors['distinct'],
-                    markeredgewidth=1.5, 
+                    markeredgewidth=2.8, 
                     markeredgecolor='white',
                     markevery=(markevery // 2, markevery),  # Offset markers
                     zorder=10)
-            
-            # Only add legend handle once (from first subplot)
-            if idx == 0:
-                shared_legend_handles.append(Line2D([0], [0],
-                                         color=colors['distinct'],
-                                         linestyle='--',
-                                         linewidth=3,
-                                         marker='s',
-                                         markersize=8,
-                                         markeredgewidth=1.5,
-                                         markeredgecolor='white',
-                                         label='Distinct Seed'))
         
-        # Y-axis label with metric name
-        ax.set_ylabel(f'{metric_short}', fontsize=24, fontweight='bold')
-        ax.grid(True, alpha=0.2, linestyle='--', linewidth=1.5)
+        # Set title as the metric name
+        ax.set_title(metric_short, fontsize=30, fontweight='bold')
+        
+        # Y-axis label only on the first subplot
+        if idx == 0:
+            ax.set_ylabel('Similarity Score', fontsize=30, fontweight='bold')
+        
+        # X-axis label on all subplots
+        ax.set_xlabel('Epoch', fontsize=30, fontweight='bold')
+        
+        ax.grid(True, alpha=0.2, linestyle='--', linewidth=4)
         
         ax.set_ylim(-0.05, 1.05)
         ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
@@ -271,18 +252,15 @@ def create_combined_plot(same_seed_df: pd.DataFrame, cross_seed_df: pd.DataFrame
         
         # Add metric-specific legend in each subplot showing the colors
         metric_handles = [
-            Line2D([0], [0], color=colors['same'], linestyle='-', linewidth=4,
-                   marker='o', markersize=12, markeredgewidth=2, markeredgecolor='white',
+            Line2D([0], [0], color=colors['same'], linestyle='-', linewidth=5.6,
+                   marker='o', markersize=20, markeredgewidth=2, markeredgecolor='white',
                    label='Same Seed'),
-            Line2D([0], [0], color=colors['distinct'], linestyle='--', linewidth=4,
-                   marker='s', markersize=12, markeredgewidth=2, markeredgecolor='white',
+            Line2D([0], [0], color=colors['distinct'], linestyle='--', linewidth=5.6,
+                   marker='s', markersize=20, markeredgewidth=2, markeredgecolor='white',
                    label='Distinct Seed'),
         ]
-        ax.legend(handles=metric_handles, loc='lower right', fontsize=22,
+        ax.legend(handles=metric_handles, loc='lower right', fontsize=26,
                   framealpha=0.95, edgecolor='black', fancybox=False)
-    
-    # X-axis label only on bottom subplot
-    axes[-1].set_xlabel('Epoch', fontsize=24, fontweight='bold')
     
     plt.tight_layout()
     

@@ -248,7 +248,7 @@ def create_combined_plot(df: pd.DataFrame, score_columns: list, measure_names: d
         return False
     
     # Create figure with 2 subplots
-    fig, axes = plt.subplots(1, 2, figsize=(24, 6), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(34, 7), sharey=True)
     
     # Use matplotlib's tab10 colormap and consistent markers/linestyles
     colors = plt.cm.tab10.colors
