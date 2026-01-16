@@ -11,10 +11,7 @@ gdown "https://drive.google.com/uc?id=1pksaioLn57UmbeKm7gMIkfSdqNdA7a4m" -O data
 
 cd data
 
-wget https://image-net.org/data/ILSVRC/2012/ILSVRC2012_devkit_t12.tar.gz
+wget http://images.cocodataset.org/zips/train2017.zip -O data/coco/train2017.zip
 
-wget https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_train.tar
-
-wget https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_val.tar
-
+wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip -O data/coco/annotations/trainval2017.zip
 
