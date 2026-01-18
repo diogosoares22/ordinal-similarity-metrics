@@ -42,13 +42,13 @@ def parse_args():
     parser.add_argument(
         '--coco-root', 
         type=str, 
-        default='./data/coco',
+        default='./data/coco/train2017',
         help='Path to COCO dataset root directory'
     )
     parser.add_argument(
         '--coco-ann-file',
         type=str,
-        default='./data/coco/annotations/captions_val2017.json',
+        default='./data/coco/annotations/captions_train2017.json',
         help='Path to COCO captions annotation file'
     )
     parser.add_argument(

@@ -30,7 +30,7 @@ dependencies = [
 
     "pymp-pypi",
     "gdown",
-
+    "pycocotools",
 
     "sentence-transformers",
     "similarity-repository @ git+https://github.com/nacloos/similarity-repository@v0.1.0"
