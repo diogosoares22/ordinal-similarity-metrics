@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Plot script for CLIP visual vs textual representation comparison results.
+Plot script for CLIP visual vs textual representation comparison results on ImageNet.
 Creates a grouped bar chart showing similarity scores across different metrics
-for small, medium, and large CLIP models comparing image and caption representations.
+for small, medium, and large CLIP models comparing image and text representations.
 """
 
 import pandas as pd
@@ -54,7 +54,7 @@ MODEL_DISPLAY_NAMES = {
 
 def find_csv_files(results_dir: Path) -> list[Path]:
     """Find all CSV files in the results directory."""
-    csv_files = list(results_dir.glob("clip_visual_textual_comparison*.csv"))
+    csv_files = list(results_dir.glob("imagenet_*_visual_textual_comparison*.csv"))
     return sorted(csv_files, key=lambda x: x.stat().st_mtime, reverse=True)
 
 
@@ -67,8 +67,8 @@ def load_data(csv_path: Path) -> pd.DataFrame:
 def get_available_metrics(df: pd.DataFrame) -> list[str]:
     """Get list of available metrics in the dataframe."""
     # Reserved columns that are not metrics
-    reserved = {'model_size', 'run', 'seed', 'n_samples', 'image_dim', 
-                'caption_dim', 'batch_size', 'no_batches'}
+    reserved = {'model_size', 'split', 'run', 'seed', 'n_samples', 'image_dim', 
+                'text_dim', 'batch_size', 'no_batches'}
     
     metrics = []
     for col in df.columns:
@@ -93,14 +93,9 @@ def create_grouped_bar_plot(df: pd.DataFrame, output_dir: Path, output_name: str
     # Order metrics: TSI/QSI variants first, then baselines
     ordered_metrics = []
     preferred_order = ['C-TSI', 'C-QSI', 'C-TSI-CosSim', 'C-QSI-CosSim', 
-                       'C-CKA', 'B-CKNNA', 'B-MutualNN', 'B-CKA', 
-                       'B-TSI', 'B-QSI', 'B-SVCCA', 'B-PWCCA']
+                       'C-CKA', 'B-CKNNA', 'B-MutualNN']
     for m in preferred_order:
         if m in available_metrics:
-            ordered_metrics.append(m)
-    # Add any remaining metrics
-    for m in available_metrics:
-        if m not in ordered_metrics:
             ordered_metrics.append(m)
     
     metrics = ordered_metrics
@@ -183,7 +178,7 @@ def create_grouped_bar_plot(df: pd.DataFrame, output_dir: Path, output_name: str
     
     # Save
     if output_name is None:
-        output_name = 'clip_visual_textual_comparison.png'
+        output_name = 'imagenet_visual_textual_comparison.png'
     
     output_path = output_dir / output_name
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -256,17 +251,17 @@ def create_heatmap_plot(df: pd.DataFrame, output_dir: Path):
     plt.tight_layout()
     
     # Save
-    output_path = output_dir / 'clip_visual_textual_comparison_heatmap.png'
+    output_path = output_dir / 'imagenet_visual_textual_comparison_heatmap.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"  Generated: clip_visual_textual_comparison_heatmap.png")
+    print(f"  Generated: imagenet_visual_textual_comparison_heatmap.png")
     return output_path
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Plot CLIP visual vs textual representation comparison results'
+        description='Plot CLIP visual vs textual representation comparison results (ImageNet)'
     )
     parser.add_argument(
         '--results-dir', 
@@ -334,9 +329,11 @@ def main():
         output_dir = Path(args.output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     
-    print(f"Creating plots for CLIP visual vs textual comparison...")
+    print(f"Creating plots for CLIP visual vs textual comparison (ImageNet)...")
     print(f"Data shape: {df.shape}")
     print(f"Model sizes: {df['model_size'].unique().tolist()}")
+    if 'split' in df.columns:
+        print(f"Split: {df['split'].unique().tolist()}")
     print(f"Runs per model: {df.groupby('model_size').size().to_dict()}")
     
     available_metrics = get_available_metrics(df)

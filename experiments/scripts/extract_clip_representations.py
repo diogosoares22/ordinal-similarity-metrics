@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Script to extract CLIP representations from the COCO Captions dataset.
+Script to extract CLIP representations from the ImageNet dataset.
 
 For each CLIP model (small, medium, large), extracts:
 - Image representations using model.encode()
-- Caption representations using model.encode()
+- Text representations using "A photo of {label}" for each class
 
-Saves representations to separate files for images and captions.
+Saves representations to separate files for images and text.
 """
 
 import argparse
@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 import torch
 from sentence_transformers import SentenceTransformer
-from torchvision.datasets import CocoCaptions
+from torchvision.datasets import ImageNet
 from PIL import Image
 
 
@@ -37,19 +37,20 @@ def initialize_clip_model(model_name: str) -> SentenceTransformer:
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Extract CLIP representations from COCO Captions dataset'
+        description='Extract CLIP representations from ImageNet dataset'
     )
     parser.add_argument(
-        '--coco-root', 
+        '--imagenet-root', 
         type=str, 
-        default='./data/coco/train2017',
-        help='Path to COCO dataset root directory'
+        default='./data/imagenet',
+        help='Path to ImageNet dataset root directory'
     )
     parser.add_argument(
-        '--coco-ann-file',
+        '--split',
         type=str,
-        default='./data/coco/annotations/captions_train2017.json',
-        help='Path to COCO captions annotation file'
+        default='val',
+        choices=['train', 'val'],
+        help='Which split to use (train or val)'
     )
     parser.add_argument(
         '--output-dir',
@@ -77,12 +78,6 @@ def parse_args():
         help='Maximum number of samples to process (None for all)'
     )
     parser.add_argument(
-        '--caption-index',
-        type=int,
-        default=0,
-        help='Which caption to use per image (COCO has 5 captions per image)'
-    )
-    parser.add_argument(
         '--device',
         type=str,
         default=None,
@@ -91,59 +86,114 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_coco_dataset(coco_root: str, ann_file: str):
-    """Load the COCO Captions dataset."""
-    print(f"Loading COCO Captions dataset from: {coco_root}")
-    print(f"Annotations file: {ann_file}")
+def load_imagenet_dataset(imagenet_root: str, split: str):
+    """Load the ImageNet dataset."""
+    print(f"Loading ImageNet dataset from: {imagenet_root}")
+    print(f"Split: {split}")
     
-    # CocoCaptions returns (image, captions) where captions is a list of strings
-    dataset = CocoCaptions(
-        root=coco_root,
-        annFile=ann_file,
+    dataset = ImageNet(
+        root=imagenet_root,
+        split=split,
     )
     
     print(f"Dataset loaded with {len(dataset)} images")
+    print(f"Number of classes: {len(dataset.classes)}")
     return dataset
 
 
-def extract_representations(
-    model: SentenceTransformer,
-    dataset: CocoCaptions,
-    batch_size: int,
-    max_samples: int | None,
-    caption_index: int,
-    device: str
-) -> tuple[np.ndarray, np.ndarray]:
+def print_all_class_names(dataset: ImageNet):
+    """Print all class names and their corresponding text prompts for verification."""
+    print("\n" + "=" * 60)
+    print("CLASS NAMES AND TEXT PROMPTS FOR VERIFICATION")
+    print("=" * 60)
+    print(f"{'Index':<8} {'Synset ID':<12} {'Text Prompt'}")
+    print("-" * 100)
+    
+    for class_idx in range(len(dataset.classes)):
+        class_info = dataset.classes[class_idx]
+        synset_id = class_info[0]
+        text_prompt = f"A photo of {synset_id}"
+        print(f"{class_idx:<8} {synset_id:<12} {text_prompt}")
+    
+    print("-" * 100)
+    print(f"Total classes: {len(dataset.classes)}")
+    print("=" * 60 + "\n")
+
+
+def get_class_name(dataset: ImageNet, class_idx: int) -> str:
     """
-    Extract image and caption representations using CLIP model.
+    Get the human-readable class name for a given class index.
+    
+    ImageNet classes are tuples of (synset_id, class_names) where class_names
+    is a tuple of synonyms. We use the first (primary) name.
+    """
+    # dataset.classes is a list of tuples: (synset_id, (name1, name2, ...))
+    # We want the first name from the tuple of names
+    class_info = dataset.classes[class_idx]
+    class_name = class_info[0]
+    return class_name
+
+
+def load_images_and_prompts(
+    dataset: ImageNet,
+    max_samples: int | None,
+) -> tuple[list[Image.Image], list[str], np.ndarray]:
+    """
+    Load images and generate text prompts from ImageNet dataset.
+    
+    This is done once before processing multiple models for efficiency.
     
     Args:
-        model: SentenceTransformer CLIP model
-        dataset: COCO Captions dataset
-        batch_size: Batch size for encoding
+        dataset: ImageNet dataset
         max_samples: Maximum number of samples to process
-        caption_index: Which caption to use (0-4)
-        device: Device to use for encoding
     
     Returns:
-        Tuple of (image_representations, caption_representations)
+        Tuple of (images, text_prompts, labels)
     """
     n_samples = len(dataset) if max_samples is None else min(max_samples, len(dataset))
     
-    print(f"Extracting representations for {n_samples} samples...")
-    print(f"Using caption index: {caption_index}")
+    print(f"Loading {n_samples} images and generating text prompts...")
     
-    # Collect images and captions
     images = []
-    captions = []
+    text_prompts = []
+    labels = []
     
-    print("Loading images and captions...")
     for idx in tqdm(range(n_samples), desc="Loading data"):
-        image, caption_list = dataset[idx]
+        image, label = dataset[idx]
         images.append(image)
-        # Use specified caption index, fallback to first if not available
-        cap_idx = min(caption_index, len(caption_list) - 1)
-        captions.append(caption_list[cap_idx])
+        labels.append(label)
+        
+        # Generate text prompt: "A photo of {class_name}"
+        class_name = get_class_name(dataset, label)
+        text_prompt = f"A photo of {class_name}"
+        text_prompts.append(text_prompt)
+    
+    print(f"Loaded {len(images)} images and {len(text_prompts)} text prompts")
+    
+    return images, text_prompts, np.array(labels)
+
+
+def encode_representations(
+    model: SentenceTransformer,
+    images: list[Image.Image],
+    text_prompts: list[str],
+    batch_size: int,
+    device: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Encode images and text prompts using CLIP model.
+    
+    Args:
+        model: SentenceTransformer CLIP model
+        images: List of PIL images
+        text_prompts: List of text prompts
+        batch_size: Batch size for encoding
+        device: Device to use for encoding
+    
+    Returns:
+        Tuple of (image_representations, text_representations)
+    """
+    print(f"Encoding {len(images)} samples...")
     
     # Encode images in batches
     print("\nEncoding images...")
@@ -155,56 +205,65 @@ def extract_representations(
         device=device
     )
     
-    # Encode captions in batches
-    print("\nEncoding captions...")
-    caption_representations = model.encode(
-        captions,
+    # Encode text prompts in batches
+    print("\nEncoding text prompts...")
+    text_representations = model.encode(
+        text_prompts,
         batch_size=batch_size,
         show_progress_bar=True,
         convert_to_numpy=True,
         device=device
     )
     
-    return image_representations, caption_representations
+    return image_representations, text_representations
 
 
 def save_representations(
     image_repr: np.ndarray,
-    caption_repr: np.ndarray,
+    text_repr: np.ndarray,
+    labels: np.ndarray,
     output_dir: Path,
     model_name: str,
-    model_size: str
+    model_size: str,
+    split: str
 ):
     """Save representations to files."""
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Save image representations
-    image_path = output_dir / f"coco_image_representations_{model_size}.npy"
+    image_path = output_dir / f"imagenet_{split}_image_representations_{model_size}.npy"
     np.save(image_path, image_repr)
     print(f"Saved image representations to: {image_path}")
     print(f"  Shape: {image_repr.shape}")
     
-    # Save caption representations
-    caption_path = output_dir / f"coco_caption_representations_{model_size}.npy"
-    np.save(caption_path, caption_repr)
-    print(f"Saved caption representations to: {caption_path}")
-    print(f"  Shape: {caption_repr.shape}")
+    # Save text representations
+    text_path = output_dir / f"imagenet_{split}_text_representations_{model_size}.npy"
+    np.save(text_path, text_repr)
+    print(f"Saved text representations to: {text_path}")
+    print(f"  Shape: {text_repr.shape}")
+    
+    # Save labels
+    labels_path = output_dir / f"imagenet_{split}_labels_{model_size}.npy"
+    np.save(labels_path, labels)
+    print(f"Saved labels to: {labels_path}")
+    print(f"  Shape: {labels.shape}")
     
     # Save metadata
-    metadata_path = output_dir / f"coco_representations_metadata_{model_size}.npz"
+    metadata_path = output_dir / f"imagenet_{split}_representations_metadata_{model_size}.npz"
     np.savez(
         metadata_path,
         model_name=model_name,
         model_size=model_size,
+        split=split,
         n_samples=image_repr.shape[0],
         image_dim=image_repr.shape[1],
-        caption_dim=caption_repr.shape[1]
+        text_dim=text_repr.shape[1]
     )
     print(f"Saved metadata to: {metadata_path}")
 
 
 def main():
-    """Main function to extract CLIP representations from COCO dataset."""
+    """Main function to extract CLIP representations from ImageNet dataset."""
     args = parse_args()
     
     # Determine device
@@ -226,8 +285,20 @@ def main():
     # Setup output directory
     output_dir = Path(args.output_dir)
     
-    # Load COCO dataset once
-    dataset = load_coco_dataset(args.coco_root, args.coco_ann_file)
+    # Load ImageNet dataset once
+    dataset = load_imagenet_dataset(args.imagenet_root, args.split)
+    
+    # Print all class names for verification
+    print_all_class_names(dataset)
+    
+    # Load images and text prompts once (expensive operation)
+    print("\n" + "=" * 60)
+    print("LOADING IMAGES AND TEXT PROMPTS (done once for all models)")
+    print("=" * 60)
+    images, text_prompts, labels = load_images_and_prompts(
+        dataset=dataset,
+        max_samples=args.max_samples
+    )
     print()
     
     # Process each model
@@ -241,23 +312,24 @@ def main():
         print(f"Loading model: {model_name}")
         model = initialize_clip_model(model_name)
         
-        # Extract representations
-        image_repr, caption_repr = extract_representations(
+        # Encode representations
+        image_repr, text_repr = encode_representations(
             model=model,
-            dataset=dataset,
+            images=images,
+            text_prompts=text_prompts,
             batch_size=args.batch_size,
-            max_samples=args.max_samples,
-            caption_index=args.caption_index,
             device=device
         )
         
         # Save representations
         save_representations(
             image_repr=image_repr,
-            caption_repr=caption_repr,
+            text_repr=text_repr,
+            labels=labels,
             output_dir=output_dir,
             model_name=model_name,
-            model_size=model_size
+            model_size=model_size,
+            split=args.split
         )
         
         # Clear model from memory
@@ -276,9 +348,10 @@ def main():
     print("\nOutput files:")
     for model_size in model_sizes:
         print(f"  {model_size}:")
-        print(f"    - coco_image_representations_{model_size}.npy")
-        print(f"    - coco_caption_representations_{model_size}.npy")
-        print(f"    - coco_representations_metadata_{model_size}.npz")
+        print(f"    - imagenet_{args.split}_image_representations_{model_size}.npy")
+        print(f"    - imagenet_{args.split}_text_representations_{model_size}.npy")
+        print(f"    - imagenet_{args.split}_labels_{model_size}.npy")
+        print(f"    - imagenet_{args.split}_representations_metadata_{model_size}.npz")
 
 
 if __name__ == "__main__":
