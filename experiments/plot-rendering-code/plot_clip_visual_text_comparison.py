@@ -93,15 +93,11 @@ def create_grouped_bar_plot(df: pd.DataFrame, output_dir: Path, output_name: str
     # Order metrics: TSI/QSI variants first, then baselines
     ordered_metrics = []
     preferred_order = ['C-TSI', 'C-QSI', 'C-TSI-CosSim', 'C-QSI-CosSim', 
-                       'C-CKA', 'B-CKNNA', 'B-MutualNN', 'B-CKA', 
-                       'B-TSI', 'B-QSI', 'B-SVCCA', 'B-PWCCA']
+                       'C-CKA', 'B-CKNNA', 'B-MutualNN', 'B-SVCCA', 'B-PWCCA']
     for m in preferred_order:
         if m in available_metrics:
             ordered_metrics.append(m)
-    # Add any remaining metrics
-    for m in available_metrics:
-        if m not in ordered_metrics:
-            ordered_metrics.append(m)
+    
     
     metrics = ordered_metrics
     model_sizes = ['small', 'medium', 'large']
