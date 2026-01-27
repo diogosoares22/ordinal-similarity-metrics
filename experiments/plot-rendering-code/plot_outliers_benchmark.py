@@ -334,7 +334,7 @@ def create_combined_plot(df: pd.DataFrame, score_columns: list, measure_names: d
         ax.text(0.02, 0.24, f'D={fixed_d}', transform=ax.transAxes, 
                  fontsize=30, fontweight='bold', va='top', ha='left')
         if fixed_k is not None:
-            ax.text(0.02, 0.12, f'K={fixed_k}', transform=ax.transAxes, 
+            ax.text(0.02, 0.12, f'O={fixed_k}', transform=ax.transAxes, 
                      fontsize=30, fontweight='bold', va='top', ha='left')
         
         ax.set_ylim(-0.05, 1.05)
@@ -498,7 +498,7 @@ def create_ablation_plot(df: pd.DataFrame, ablation_columns: list, ablation_meas
         ax.text(0.02, 0.24, f'D={fixed_d}', transform=ax.transAxes, 
                  fontsize=30, fontweight='bold', va='top', ha='left')
         if fixed_k is not None:
-            ax.text(0.02, 0.12, f'K={fixed_k}', transform=ax.transAxes, 
+            ax.text(0.02, 0.12, f'O={fixed_k}', transform=ax.transAxes, 
                      fontsize=30, fontweight='bold', va='top', ha='left')
         
         ax.set_ylim(-0.05, 1.05)

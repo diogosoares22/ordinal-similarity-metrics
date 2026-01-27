@@ -33,10 +33,10 @@ METRIC_GROUPS = {
 METRIC_DISPLAY_NAMES = {
     'B-TSI': 'B-TSI',
     'B-QSI': 'B-QSI',
-    'C-TSI': 'TSI',
-    'C-QSI': 'QSI',
-    'C-TSI-CosSim': 'TSI-Cos',
-    'C-QSI-CosSim': 'QSI-Cos',
+    'C-TSI': 'TSI \n(Euc)',
+    'C-QSI': 'QSI \n(Euc)',
+    'C-TSI-CosSim': 'TSI \n(Cos)',
+    'C-QSI-CosSim': 'QSI \n(Cos)',
     'B-CKA': 'B-CKA',
     'C-CKA': 'CKA',
     'B-CKNNA': 'CKNNA',
@@ -110,7 +110,7 @@ def create_grouped_bar_plot(df: pd.DataFrame, output_dir: Path, output_name: str
     std_data = df.groupby('model_size')[metrics].std()
     
     # Create figure
-    fig, ax = plt.subplots(figsize=(20, 8))
+    fig, ax = plt.subplots(figsize=(16, 8))
     
     # Bar positioning
     n_metrics = len(metrics)
@@ -160,20 +160,20 @@ def create_grouped_bar_plot(df: pd.DataFrame, output_dir: Path, output_name: str
     # X-axis labels
     metric_labels = [METRIC_DISPLAY_NAMES.get(m, m) for m in metrics]
     ax.set_xticks(x)
-    ax.set_xticklabels(metric_labels, rotation=30, ha='right', fontsize=26)
+    ax.set_xticklabels(metric_labels, rotation=30, ha='center', fontsize=28)
     
     # Y-axis limits
-    ax.set_ylim(0, 0.75)
-    ax.set_yticks([0, 0.25, 0.5, 0.75])
+    ax.set_ylim(0, 0.7)
+    ax.set_yticks([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
     
     # Grid
     ax.grid(True, alpha=0.2, linestyle='--', linewidth=2, axis='y', zorder=0)
     ax.set_axisbelow(True)
     
     # Legend
-    legend = ax.legend(loc='upper right', fontsize=28, framealpha=0.95, 
+    legend = ax.legend(loc='upper right', fontsize=26, framealpha=0.95, 
                        edgecolor='black', fancybox=False, title='CLIP Model',
-                       title_fontsize=28)
+                       title_fontsize=26)
     
     plt.tight_layout()
     
