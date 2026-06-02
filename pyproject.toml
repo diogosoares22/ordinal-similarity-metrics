@@ -1,0 +1,38 @@
+[build-system]
+requires = ["flit_core >=3.7,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "src"
+version = "0.1.0"
+description = "Metrics to measure ordinal similarities"
+authors = [
+  { name="Your Name", email="your@email.com" },
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+
+# These are your project's runtime dependencies.
+dependencies = [
+    # General science & ml
+    "numpy",
+    "scipy",
+    "scikit-learn==1.6.1",
+    "pandas",
+    "cython",
+    "torch",
+    "torchvision",
+    "wandb",
+
+    # Plotting & visualization
+    "matplotlib",
+    "seaborn",
+
+    "pymp-pypi",
+    "gdown",
+    "pycocotools",
+
+    "sentence-transformers",
+    "similarity-repository @ git+https://github.com/nacloos/similarity-repository@v0.1.0"
+]
