@@ -1,6 +1,6 @@
 # Scalable and Interpretable Representation Alignment with Ordinal Similarity
 
-This repository contains the implementation of Ordinal Similarity Metrics, specifically the **Triplet Similarity Index (TSI)** and **Quadruplet Similarity Index (QSI)**. These metrics provide a way to measure the alignment between two data representations (e.g., from different neural network layers or models) based on their ordinal relationships rather than absolute distances. This paper was accepted at **ICML 2026**. Preprint (arXiv): replace when available — `https://arxiv.org/abs/XXXX.XXXXX`
+This repository contains the implementation of Ordinal Similarity Metrics, specifically the **Triplet Similarity Index (TSI)** and **Quadruplet Similarity Index (QSI)**. These metrics provide a way to measure the alignment between two data representations (e.g., from different neural network layers or models) based on their ordinal relationships rather than absolute distances. This paper was accepted at **ICML 2026**. Preprint (arXiv): https://arxiv.org/abs/2606.16379
 
 
 
